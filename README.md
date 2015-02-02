@@ -1,7 +1,7 @@
 GoStore
 ======
-**GoStore** is a small storage api currently for nosql databases like boltdb, leveldb, riak, mongodb etc.
-It attempts to create a simple way to test multiple different types of storage backends for an api.
+**GoStore** is a small storage wrapper for nosql databases like boltdb, leveldb, riak, mongodb etc.
+It attempts to create a simple way to use different combinations of storage backends in an api.
 
 #### Screenshot
 
