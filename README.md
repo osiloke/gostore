@@ -3,6 +3,9 @@ GoStore
 **GoStore** is a small storage wrapper for nosql databases like boltdb, leveldb, riak, mongodb etc.
 It attempts to create a simple way to use different combinations of storage backends in an api.
 
+NOTE:
+Still being developed, use at own risk or when i update this note.
+
 #### Screenshot
 
 ## Usage
