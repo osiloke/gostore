@@ -6,7 +6,7 @@ It attempts to create a simple way to use different combinations of storage back
 #### Screenshot
 
 ## Usage
-```$ go get https://github.com/osiloke/gostore.git
+```$ go get github.com/osiloke/gostore
 ...```
 
 ## Contributors
