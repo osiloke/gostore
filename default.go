@@ -1,4 +1,4 @@
-package stores
+package gostore
 
 type Store interface{
 	Get(key []byte, resource string) ([][]byte, error)

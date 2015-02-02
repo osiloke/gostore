@@ -1,4 +1,4 @@
-package stores
+package gostore
 //TODO: Extract methods into functions
 import (
 	"github.com/boltdb/bolt"
