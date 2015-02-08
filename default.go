@@ -1,5 +1,8 @@
 package gostore
 
+/**
+TODO: Define callbacks and also pass context
+ */
 type Store interface{
 	Get(key []byte, resource string) ([][]byte, error)
 	Save(key []byte,  obj []byte, resource string) error
