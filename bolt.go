@@ -1,25 +1,26 @@
 package gostore
+
 //TODO: Extract methods into functions
 import (
-	"github.com/boltdb/bolt"
-	"log"
-	"errors"
 	"bytes"
+	"errors"
+	"github.com/boltdb/bolt"
+	"github.com/fatih/structs"
+	"log"
 )
 
 type BoltStore struct {
 	Bucket []byte
-	Db *bolt.DB
+	Db     *bolt.DB
 }
 
-
-func NewBoltStore(bucket string, db *bolt.DB) BoltStore{
+func NewBoltStore(bucket string, db *bolt.DB) BoltStore {
 	e := BoltStore{[]byte(bucket), db}
-	e.CreateBucket(bucket)
+	//	e.CreateBucket(bucket)
 	return e
 }
 
-func (s BoltStore) CreateBucket(bucket string){
+func (s BoltStore) CreateBucket(bucket string) {
 	s.Db.Update(func(tx *bolt.Tx) error {
 		_, err := tx.CreateBucketIfNotExists([]byte(bucket))
 		if err != nil {
@@ -29,11 +30,11 @@ func (s BoltStore) CreateBucket(bucket string){
 	})
 }
 
-func Get(key []byte, bucket []byte, db *bolt.DB) (v []byte, err error){
+func Get(key []byte, bucket []byte, db *bolt.DB) (v []byte, err error) {
 	err = db.View(func(tx *bolt.Tx) error {
 		b := tx.Bucket(bucket)
 		v = b.Get(key)
-		if v == nil{
+		if v == nil {
 			return errors.New("Does not exist")
 		}
 		return nil
@@ -41,10 +42,10 @@ func Get(key []byte, bucket []byte, db *bolt.DB) (v []byte, err error){
 	return
 }
 
-func (s BoltStore)	Get(key []byte, resource string) (v [][]byte, err error){
+func (s BoltStore) Get(key []byte, resource string) (v [][]byte, err error) {
 	s.CreateBucket(resource)
 	vv, err := Get(key, []byte(resource), s.Db)
-	if vv != nil{
+	if vv != nil {
 		v = [][]byte{key, vv}
 	}
 	return
@@ -62,7 +63,7 @@ func (s BoltStore) Save(key []byte, data []byte, resource string) error {
 
 func (s BoltStore) Delete(key []byte, resource string) error {
 	s.CreateBucket(resource)
-	err := s.Db.Update(func(tx *bolt.Tx) error{
+	err := s.Db.Update(func(tx *bolt.Tx) error {
 		b := tx.Bucket([]byte(resource))
 		err := b.Delete(key)
 		return err
@@ -72,25 +73,25 @@ func (s BoltStore) Delete(key []byte, resource string) error {
 
 func (s BoltStore) DeleteAll(resource string) error {
 	s.CreateBucket(resource)
-	err := s.Db.Update(func(tx *bolt.Tx) error{
+	err := s.Db.Update(func(tx *bolt.Tx) error {
 		b := tx.Bucket([]byte(resource))
 		c := b.Cursor()
 		for k, _ := c.First(); k != nil; k, _ = c.Next() {
- 			b.Delete(k)
+			b.Delete(k)
 		}
 		return nil
 	})
 	return err
 }
 
-func (s BoltStore) GetAll(count int, resource string) (objs [][][]byte, err error){
+func (s BoltStore) GetAll(count int, resource string) (objs [][][]byte, err error) {
 	s.CreateBucket(resource)
 	err = s.Db.View(func(tx *bolt.Tx) error {
 		c := tx.Bucket([]byte(resource)).Cursor()
 		var lim int = 1
-		for k, v := c.First(); k != nil; k, v = c.Next(){
-			objs = append(objs,[][]byte{k, v})
-			if lim == count{
+		for k, v := c.First(); k != nil; k, v = c.Next() {
+			objs = append(objs, [][]byte{k, v})
+			if lim == count {
 				break
 			}
 			lim++
@@ -100,15 +101,15 @@ func (s BoltStore) GetAll(count int, resource string) (objs [][][]byte, err erro
 	return
 }
 
-func (s BoltStore) Filter(key []byte, count int, resource string) (objs [][]byte, err error){
+func (s BoltStore) Filter(prefix []byte, count int, resource string) (objs [][][]byte, err error) {
 	s.CreateBucket(resource)
-	b_prefix := []byte(key)
+	b_prefix := []byte(prefix)
 	err = s.Db.View(func(tx *bolt.Tx) error {
 		var lim int = 1
 		c := tx.Bucket([]byte(resource)).Cursor()
 		for k, v := c.Seek(b_prefix); bytes.HasPrefix(k, b_prefix); k, v = c.Next() {
-			objs = append(objs, v)
-			if lim == count{
+			objs = append(objs, [][]byte{k, v})
+			if lim == count {
 				break
 			}
 			lim++
@@ -118,7 +119,25 @@ func (s BoltStore) Filter(key []byte, count int, resource string) (objs [][]byte
 	return
 }
 
-func (s BoltStore) StreamFilter(key []byte, count int, resource string) chan []byte{
+func (s BoltStore) FilterSuffix(suffix []byte, count int, resource string) (objs [][]byte, err error) {
+	s.CreateBucket(resource)
+	b_prefix := []byte(suffix)
+	err = s.Db.View(func(tx *bolt.Tx) error {
+		var lim int = 1
+		c := tx.Bucket([]byte(resource)).Cursor()
+		for k, v := c.Seek(b_prefix); bytes.HasPrefix(k, b_prefix); k, v = c.Next() {
+			objs = append(objs, v)
+			if lim == count {
+				break
+			}
+			lim++
+		}
+		return nil
+	})
+	return
+}
+
+func (s BoltStore) StreamFilter(key []byte, count int, resource string) chan []byte {
 
 	s.CreateBucket(resource)
 	//Uses channels to stream filtered keys
@@ -130,7 +149,7 @@ func (s BoltStore) StreamFilter(key []byte, count int, resource string) chan []b
 			c := tx.Bucket([]byte(resource)).Cursor()
 			for k, v := c.Seek(b_prefix); bytes.HasPrefix(k, b_prefix); k, v = c.Next() {
 				ch <- v
-				if lim == count{
+				if lim == count {
 					break
 				}
 				lim++
@@ -140,4 +159,13 @@ func (s BoltStore) StreamFilter(key []byte, count int, resource string) chan []b
 		close(ch)
 	}()
 	return ch
+}
+
+func (s BoltStore) Stats(bucket string) (data map[string]interface{}, err error) {
+	err = s.Db.View(func(tx *bolt.Tx) error {
+		v := tx.Bucket([]byte(bucket)).Stats()
+		data = structs.Map(v)
+		return nil
+	})
+	return
 }
