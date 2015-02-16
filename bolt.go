@@ -84,7 +84,7 @@ func (s BoltStore) DeleteAll(resource string) error {
 	return err
 }
 
-func (s BoltStore) GetAll(count int, resource string) (objs [][][]byte, err error) {
+func (s BoltStore) GetAll(count int, resource string) (objs [][][]byte, next [][]byte, err error) {
 	s.CreateBucket(resource)
 	err = s.Db.View(func(tx *bolt.Tx) error {
 		c := tx.Bucket([]byte(resource)).Cursor()
@@ -96,12 +96,54 @@ func (s BoltStore) GetAll(count int, resource string) (objs [][][]byte, err erro
 			}
 			lim++
 		}
+		k, v := c.Next()
+		next = [][]byte{k, v}
 		return err
 	})
 	return
 }
 
-func (s BoltStore) Filter(prefix []byte, count int, resource string) (objs [][][]byte, err error) {
+func (s BoltStore) GetAllAfter(key []byte, count int, resource string) (objs [][][]byte, next [][]byte, err error) {
+	s.CreateBucket(resource)
+	err = s.Db.View(func(tx *bolt.Tx) error {
+		c := tx.Bucket([]byte(resource)).Cursor()
+		var lim int = 1
+
+		for k, v := c.Seek(key); k != nil; k, v = c.Next() {
+			objs = append(objs, [][]byte{k, v})
+			if lim == count {
+				break
+			}
+			lim++
+		}
+		k, v := c.Next()
+		next = [][]byte{k, v}
+		return err
+	})
+	return
+}
+
+func (s BoltStore) GetAllBefore(key []byte, count int, resource string) (objs [][][]byte, next [][]byte, err error) {
+	s.CreateBucket(resource)
+	err = s.Db.View(func(tx *bolt.Tx) error {
+		c := tx.Bucket([]byte(resource)).Cursor()
+		var lim int = 1
+
+		for k, v := c.Seek(key); k != nil; k, v = c.Prev() {
+			objs = append(objs, [][]byte{k, v})
+			if lim == count {
+				break
+			}
+			lim++
+		}
+		k, v := c.Next()
+		next = [][]byte{k, v}
+		return err
+	})
+	return
+}
+
+func (s BoltStore) Filter(prefix []byte, count int, resource string) (objs [][][]byte, next [][]byte, err error) {
 	s.CreateBucket(resource)
 	b_prefix := []byte(prefix)
 	err = s.Db.View(func(tx *bolt.Tx) error {
@@ -114,12 +156,14 @@ func (s BoltStore) Filter(prefix []byte, count int, resource string) (objs [][][
 			}
 			lim++
 		}
+		k, v := c.Next()
+		next = [][]byte{k, v}
 		return nil
 	})
 	return
 }
 
-func (s BoltStore) FilterSuffix(suffix []byte, count int, resource string) (objs [][]byte, err error) {
+func (s BoltStore) FilterSuffix(suffix []byte, count int, resource string) (objs [][]byte, next [][]byte, err error) {
 	s.CreateBucket(resource)
 	b_prefix := []byte(suffix)
 	err = s.Db.View(func(tx *bolt.Tx) error {
@@ -132,6 +176,8 @@ func (s BoltStore) FilterSuffix(suffix []byte, count int, resource string) (objs
 			}
 			lim++
 		}
+		k, v := c.Next()
+		next = [][]byte{k, v}
 		return nil
 	})
 	return
