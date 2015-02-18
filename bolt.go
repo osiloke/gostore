@@ -84,86 +84,138 @@ func (s BoltStore) DeleteAll(resource string) error {
 	return err
 }
 
-func (s BoltStore) GetAll(count int, resource string) (objs [][][]byte, next [][]byte, err error) {
+func (s BoltStore) GetAll(count int, skip int, resource string) (objs [][][]byte, err error) {
 	s.CreateBucket(resource)
 	err = s.Db.View(func(tx *bolt.Tx) error {
 		c := tx.Bucket([]byte(resource)).Cursor()
-		var lim int = 1
-		for k, v := c.First(); k != nil; k, v = c.Next() {
+		//Skip a certain amount
+		if skip > 0 {
+			//make sure we hit the database once
+			var skip_lim int = 1
+			var target_count int = skip - 1
+			for k, _ := c.First(); k != nil; k, _ = c.Next() {
+				if skip_lim >= target_count {
+					break
+				}
+				skip_lim++
+			}
+		} else {
+			//no skip needed. Get first item
+			k, v := c.First()
+			if k != nil {
+				objs = append(objs, [][]byte{k, v})
+			} else {
+				return err
+			}
+		}
+
+		//Get next items after skipping or getting first item
+		var lim int = 2
+		for k, v := c.Next(); k != nil; k, v = c.Next() {
 			objs = append(objs, [][]byte{k, v})
 			if lim == count {
 				break
 			}
 			lim++
 		}
-		k, v := c.Next()
-		next = [][]byte{k, v}
 		return err
 	})
 	return
 }
 
-func (s BoltStore) GetAllAfter(key []byte, count int, resource string) (objs [][][]byte, next [][]byte, err error) {
+func (s BoltStore) GetAllAfter(key []byte, count int, skip int, resource string) (objs [][][]byte, err error) {
 	s.CreateBucket(resource)
 	err = s.Db.View(func(tx *bolt.Tx) error {
 		c := tx.Bucket([]byte(resource)).Cursor()
+		if skip > 0 {
+			var skip_lim int = 1
+			var target_count int = skip - 1
+			for k, _ := c.Seek(key); k != nil; k, _ = c.Next() {
+				// log.Println("Skipped ", string(k), "Current lim is ", skip_lim, " target count is ", target_count)
+				if skip_lim >= target_count {
+					break
+				}
+				skip_lim++
+			}
+		}
 		var lim int = 1
-
-		for k, v := c.Seek(key); k != nil; k, v = c.Next() {
+		for k, v := c.Next(); k != nil; k, v = c.Next() {
 			objs = append(objs, [][]byte{k, v})
 			if lim == count {
 				break
 			}
 			lim++
 		}
-		k, v := c.Next()
-		next = [][]byte{k, v}
 		return err
 	})
 	return
 }
 
-func (s BoltStore) GetAllBefore(key []byte, count int, resource string) (objs [][][]byte, next [][]byte, err error) {
+func (s BoltStore) GetAllBefore(key []byte, count int, skip int, resource string) (objs [][][]byte, err error) {
 	s.CreateBucket(resource)
 	err = s.Db.View(func(tx *bolt.Tx) error {
 		c := tx.Bucket([]byte(resource)).Cursor()
+		if skip > 0 {
+			var skip_lim int = 1
+			var target_count int = skip - 1
+			for k, _ := c.Seek(key); k != nil; k, _ = c.Prev() {
+				if skip_lim >= target_count {
+					break
+				}
+				skip_lim++
+			}
+		}
 		var lim int = 1
-
-		for k, v := c.Seek(key); k != nil; k, v = c.Prev() {
+		for k, v := c.Prev(); k != nil; k, v = c.Prev() {
 			objs = append(objs, [][]byte{k, v})
 			if lim == count {
 				break
 			}
 			lim++
 		}
-		k, v := c.Next()
-		next = [][]byte{k, v}
 		return err
 	})
 	return
 }
 
-func (s BoltStore) Filter(prefix []byte, count int, resource string) (objs [][][]byte, next [][]byte, err error) {
+func (s BoltStore) Filter(prefix []byte, count int, skip int, resource string) (objs [][][]byte, err error) {
 	s.CreateBucket(resource)
 	b_prefix := []byte(prefix)
 	err = s.Db.View(func(tx *bolt.Tx) error {
 		var lim int = 1
 		c := tx.Bucket([]byte(resource)).Cursor()
-		for k, v := c.Seek(b_prefix); bytes.HasPrefix(k, b_prefix); k, v = c.Next() {
+		if skip > 0 {
+			var skip_lim int = 1
+			var target_count int = skip - 1
+			for k, _ := c.Seek(b_prefix); k != nil; k, _ = c.Next() {
+				if skip_lim >= target_count {
+					break
+				}
+				skip_lim++
+			}
+		} else {
+			//no skip needed. Get first item
+			k, v := c.Seek(b_prefix)
+			if k != nil {
+				objs = append(objs, [][]byte{k, v})
+			} else {
+				return err
+			}
+		}
+
+		for k, v := c.Next(); bytes.HasPrefix(k, b_prefix); k, v = c.Next() {
 			objs = append(objs, [][]byte{k, v})
 			if lim == count {
 				break
 			}
 			lim++
 		}
-		k, v := c.Next()
-		next = [][]byte{k, v}
 		return nil
 	})
 	return
 }
 
-func (s BoltStore) FilterSuffix(suffix []byte, count int, resource string) (objs [][]byte, next [][]byte, err error) {
+func (s BoltStore) FilterSuffix(suffix []byte, count int, resource string) (objs [][]byte, err error) {
 	s.CreateBucket(resource)
 	b_prefix := []byte(suffix)
 	err = s.Db.View(func(tx *bolt.Tx) error {
@@ -176,8 +228,6 @@ func (s BoltStore) FilterSuffix(suffix []byte, count int, resource string) (objs
 			}
 			lim++
 		}
-		k, v := c.Next()
-		next = [][]byte{k, v}
 		return nil
 	})
 	return
