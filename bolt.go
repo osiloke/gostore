@@ -131,14 +131,22 @@ func (s BoltStore) GetAllAfter(key []byte, count int, skip int, resource string)
 			var skip_lim int = 1
 			var target_count int = skip - 1
 			for k, _ := c.Seek(key); k != nil; k, _ = c.Next() {
-				// log.Println("Skipped ", string(k), "Current lim is ", skip_lim, " target count is ", target_count)
+				log.Println("Skipped ", string(k), "Current lim is ", skip_lim, " target count is ", target_count)
 				if skip_lim >= target_count {
 					break
 				}
 				skip_lim++
 			}
+		} else {
+			//no skip needed. Get first item
+			k, v := c.Seek(key)
+			if k != nil {
+				objs = append(objs, [][]byte{k, v})
+			} else {
+				return err
+			}
 		}
-		var lim int = 1
+		var lim int = 2
 		for k, v := c.Next(); k != nil; k, v = c.Next() {
 			objs = append(objs, [][]byte{k, v})
 			if lim == count {
@@ -164,8 +172,16 @@ func (s BoltStore) GetAllBefore(key []byte, count int, skip int, resource string
 				}
 				skip_lim++
 			}
+		} else {
+			//no skip needed. Get first item
+			k, v := c.Seek(key)
+			if k != nil {
+				objs = append(objs, [][]byte{k, v})
+			} else {
+				return err
+			}
 		}
-		var lim int = 1
+		var lim int = 2
 		for k, v := c.Prev(); k != nil; k, v = c.Prev() {
 			objs = append(objs, [][]byte{k, v})
 			if lim == count {
