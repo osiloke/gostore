@@ -12,7 +12,12 @@ type Store interface {
 	GetAllAfter(key []byte, count int, skip int, resource string) ([][][]byte, error)  //Get all items after a key
 	GetAllBefore(key []byte, count int, skip int, resource string) ([][][]byte, error) //Get all items before a key
 	Filter(prefix []byte, count int, skip int, resource string) ([][][]byte, error)
+
+	//Streaming api
 	StreamFilter(key []byte, count int, resource string) chan []byte
+	StreamAll(count int, resource string) chan [][]byte //Stream all entries through a channel
+
+	//Misc api
 	Stats(bucket string) (map[string]interface{}, error)
 }
 

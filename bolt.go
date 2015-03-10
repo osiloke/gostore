@@ -273,6 +273,29 @@ func (s BoltStore) StreamFilter(key []byte, count int, resource string) chan []b
 	return ch
 }
 
+func (s BoltStore) StreamAll(count int, resource string) chan [][]byte {
+
+	s.CreateBucket(resource)
+	//Uses channels to stream filtered keys
+	ch := make(chan [][]byte)
+	go func() {
+		s.Db.View(func(tx *bolt.Tx) error {
+			var lim int = 1
+			c := tx.Bucket([]byte(resource)).Cursor()
+			for k, v := c.First(); k != nil; k, v = c.Next() {
+				ch <- [][]byte{k, v}
+				if lim == count {
+					break
+				}
+				lim++
+			}
+			close(ch)
+			return nil
+		})
+	}()
+	return ch
+}
+
 func (s BoltStore) Stats(bucket string) (data map[string]interface{}, err error) {
 	err = s.Db.View(func(tx *bolt.Tx) error {
 		v := tx.Bucket([]byte(bucket)).Stats()
