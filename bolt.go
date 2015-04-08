@@ -7,7 +7,13 @@ import (
 	"github.com/boltdb/bolt"
 	"github.com/fatih/structs"
 	"log"
+	"time"
 )
+
+func timeTrack(start time.Time, name string) {
+	elapsed := time.Since(start)
+	log.Printf("%s took %d", name, elapsed)
+}
 
 type BoltStore struct {
 	Bucket []byte
@@ -31,6 +37,7 @@ func (s BoltStore) CreateBucket(bucket string) {
 }
 
 func Get(key []byte, bucket []byte, db *bolt.DB) (v []byte, err error) {
+	defer timeTrack(time.Now(), "Bolt Store::Get "+string(key)+" from "+string(bucket))
 	err = db.View(func(tx *bolt.Tx) error {
 		b := tx.Bucket(bucket)
 		v = b.Get(key)
