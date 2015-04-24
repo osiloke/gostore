@@ -10,6 +10,8 @@ import (
 	"time"
 )
 
+var ErrNotFound = errors.New("Does not exist")
+
 func timeTrack(start time.Time, name string) {
 	elapsed := time.Since(start)
 	log.Printf("%s took %d", name, elapsed)
@@ -42,7 +44,20 @@ func Get(key []byte, bucket []byte, db *bolt.DB) (v []byte, err error) {
 		b := tx.Bucket(bucket)
 		v = b.Get(key)
 		if v == nil {
-			return errors.New("Does not exist")
+			return ErrNotFound
+		}
+		return nil
+	})
+	return
+}
+
+func PrefixGet(prefix []byte, bucket []byte, db *bolt.DB) (k, v []byte, err error) {
+	defer timeTrack(time.Now(), "Bolt Store::PrefixGet "+string(prefix)+" from "+string(bucket))
+	err = db.View(func(tx *bolt.Tx) error {
+		c := tx.Bucket(bucket).Cursor()
+		k, v = c.Seek(prefix)
+		if v == nil {
+			return ErrNotFound
 		}
 		return nil
 	})
@@ -54,6 +69,15 @@ func (s BoltStore) Get(key []byte, resource string) (v [][]byte, err error) {
 	vv, err := Get(key, []byte(resource), s.Db)
 	if vv != nil {
 		v = [][]byte{key, vv}
+	}
+	return
+}
+
+func (s BoltStore) PrefixGet(prefix []byte, resource string) (v [][]byte, err error) {
+	s.CreateBucket(resource)
+	kk, vv, err := PrefixGet(prefix, []byte(resource), s.Db)
+	if vv != nil {
+		v = [][]byte{kk, vv}
 	}
 	return
 }
