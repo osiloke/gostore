@@ -124,7 +124,7 @@ func (s BoltStore) GetAll(count int, skip int, resource string) (objs [][][]byte
 			//make sure we hit the database once
 			var skip_lim int = 1
 			var target_count int = skip - 1
-			for k, _ := c.First(); k != nil; k, _ = c.Next() {
+			for k, _ := c.Last(); k != nil; k, _ = c.Prev() {
 				if skip_lim >= target_count {
 					break
 				}
@@ -132,7 +132,7 @@ func (s BoltStore) GetAll(count int, skip int, resource string) (objs [][][]byte
 			}
 		} else {
 			//no skip needed. Get first item
-			k, v := c.First()
+			k, v := c.Last()
 			if k != nil {
 				objs = append(objs, [][]byte{k, v})
 			} else {
@@ -142,7 +142,7 @@ func (s BoltStore) GetAll(count int, skip int, resource string) (objs [][][]byte
 
 		//Get next items after skipping or getting first item
 		var lim int = 2
-		for k, v := c.Next(); k != nil; k, v = c.Next() {
+		for k, v := c.Prev(); k != nil; k, v = c.Prev() {
 			objs = append(objs, [][]byte{k, v})
 			if lim == count {
 				break
@@ -313,7 +313,7 @@ func (s BoltStore) StreamAll(count int, resource string) chan [][]byte {
 		s.Db.View(func(tx *bolt.Tx) error {
 			var lim int = 1
 			c := tx.Bucket([]byte(resource)).Cursor()
-			for k, v := c.First(); k != nil; k, v = c.Next() {
+			for k, v := c.Last(); k != nil; k, v = c.Prev() {
 				ch <- [][]byte{k, v}
 				if lim == count {
 					break
