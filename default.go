@@ -20,7 +20,48 @@ type Store interface {
 
 	//Misc api
 	Stats(bucket string) (map[string]interface{}, error)
+	GetStoreObject() interface{}
 }
+type ObjectStore interface {
+	//Management Api
+	CreateDatabase() error
+	CreateTable(table string, sample interface{}) error
+
+	//Misc api
+	GetStore() interface{}
+	Stats(store string) (map[string]interface{}, error)
+
+	//New Api
+	All(count int, skip int, store string) (ObjectRows, error)
+	AllCursor(store string) (ObjectRows, error)
+
+	Since(id string, count int, skip int, store string) (ObjectRows, error) //Get all items after a key
+	Before(id string, count int, skip int, store string) (ObjectRows, error)
+
+	Get(key string, store string, dst interface{}) error
+	Save(store string, src interface{}) (string, error)
+	Update(key string, store string, src interface{}) error
+	Delete(key string, store string) error
+
+	//Filter
+
+	FilterGet(filter map[string]interface{}, store string, dst interface{}) error
+	FilterGetAll(filter map[string]interface{}, count int, skip int, store string) (ObjectRows, error)
+	FilterDelete(filter map[string]interface{}, store string) error
+	FilterCount(filter map[string]interface{}, store string) (int64, error)
+
+	//Misc gets
+	GetByField(name, val, store string, dst interface{}) error
+	GetByFieldsByField(name, val, store string, fields []string, dst interface{}) (err error)
+
+	Close()
+}
+
+type ObjectRows interface {
+	Next(interface{}) (bool, error)
+}
+
+type StoreOptions map[string]interface{}
 
 type StoreObj interface {
 	SetKey(key string)

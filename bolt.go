@@ -3,19 +3,12 @@ package gostore
 //TODO: Extract methods into functions
 import (
 	"bytes"
-	"errors"
 	"github.com/boltdb/bolt"
 	"github.com/fatih/structs"
 	"log"
 	"time"
 )
 
-var ErrNotFound = errors.New("Does not exist")
-
-func timeTrack(start time.Time, name string) {
-	elapsed := time.Since(start)
-	log.Printf("%s took %d", name, elapsed)
-}
 
 type BoltStore struct {
 	Bucket []byte
@@ -334,4 +327,19 @@ func (s BoltStore) Stats(bucket string) (data map[string]interface{}, err error)
 		return nil
 	})
 	return
+}
+
+func (s BoltStore) GetStoreObject() interface{}{
+	return s.Db
+}
+
+func NewBoltObjectStore(db *bolt.DB, database string) BoltObjectStore {
+	e := BoltObjectStore{db}
+	//	e.CreateBucket(bucket)
+	return e
+}
+
+
+type BoltObjectStore struct{
+	Db     *bolt.DB
 }
