@@ -4,6 +4,8 @@ import (
 	r "github.com/dancannon/gorethink"
 	"github.com/mgutz/logxi/v1"
 	"strings"
+	"fmt"
+	"github.com/dustin/gojson"
 )
 
 var logger = log.New("gostore.rethink")
@@ -25,9 +27,14 @@ type RethinkRows struct {
 
 func (s RethinkRows) Next(dst interface{}) (bool, error) {
 	if !s.cursor.Next(dst) {
+//		logger.Debug("Error getting next", "err", s.cursor.Err(), "isNil", s.cursor.IsNil())
 		return false, s.cursor.Err()
 	}
 	return true, nil
+}
+
+func (s RethinkRows) Close(){
+	s.cursor.Close()
 }
 
 func (s RethinkStore) CreateDatabase() (err error) {
@@ -45,7 +52,7 @@ func (s RethinkStore) CreateTable(store string, sample interface{}) (err error) 
 }
 
 func (s RethinkStore) All(count int, skip int, store string) (rrows ObjectRows, err error) {
-	result, err := r.DB(s.Database).Table(store).Run(s.Session)
+	result, err := r.DB(s.Database).Table(store).OrderBy(r.OrderByOpts{Index:r.Desc("id")}).Run(s.Session)
 	if err != nil {
 		return
 	}
@@ -62,14 +69,61 @@ func (s RethinkStore) AllCursor(store string) (ObjectRows, error) {
 	return RethinkRows{result}, nil
 }
 
-//This will retrieve all old rows that were created before the row with id was created
+//Before will retrieve all old rows that were created before the row with id was created
 // [1, 2, 3, 4], before 2 will return [3, 4]
+//r.db('worksmart').table('store').orderBy({'index': r.desc('id')}).filter(r.row('schemas')
+// .eq('osiloke_tsaboin_silverbird').and(r.row('id').lt('55b54e93f112a16514000057')))
+// .pluck('schemas', 'id','tid', 'timestamp', 'created_at').limit(100)
 func (s RethinkStore) Before(id string, count int, skip int, store string) (rows ObjectRows, err error) {
 	result, err := r.DB(s.Database).Table(store).Filter(r.Row.Field("id").Lt(id)).Limit(count).Skip(skip).Run(s.Session)
 	if err != nil {
 		return
 	}
 	defer result.Close()
+	//	result.All(dst)
+	rows = RethinkRows{result}
+	return
+}
+
+func (s RethinkStore) FilterBefore(id string, filter map[string]interface{}, count int, skip int, store string) (rows ObjectRows, err error){
+	result, err := r.DB(s.Database).Table(store).Between(
+		r.MinVal, id, r.BetweenOpts{RightBound: "closed"}).OrderBy(
+		r.OrderByOpts{Index:r.Desc("id")}).Filter(
+		filter).Limit(count).Run(s.Session)
+	if err != nil {
+		return
+	}
+//	var dst interface{}
+	f, _ := json.Marshal(filter)
+	logger.Debug("FilterBefore", "query",
+		fmt.Sprintf("r.db('%s').table('%s').between(r.minval, '%s').orderBy({index:r.desc('id')}).filter(%s).limit(%d)",
+			s.Database, store, id, string(f), count))
+	rows = RethinkRows{result}
+	return
+}
+
+func (s RethinkStore) FilterBeforeCount(id string, filter map[string]interface{}, count int, skip int, store string) (int64, error){
+	result, err := r.DB(s.Database).Table(store).Between(
+		r.MinVal, id).OrderBy(
+		r.OrderByOpts{Index:r.Desc("id")}).Filter(
+		filter).Count().Run(s.Session)
+	defer result.Close()
+
+	var cnt int64
+	if err = result.One(&cnt); err != nil {
+		return 0, ErrNotFound
+	}
+	return cnt, nil
+}
+
+func (s RethinkStore) FilterSince(id string, filter map[string]interface{}, count int, skip int, store string) (rows ObjectRows, err error){
+	result, err := r.DB(s.Database).Table(store).Between(
+		id, r.MaxVal, r.BetweenOpts{LeftBound: "open", Index:"id"}).OrderBy(
+		r.OrderByOpts{Index:r.Desc("id")}).Filter(
+		filter).Limit(count).Run(s.Session)
+	if err != nil {
+		return
+	}
 	//	result.All(dst)
 	rows = RethinkRows{result}
 	return
@@ -82,7 +136,6 @@ func (s RethinkStore) Since(id string, count, skip int, store string) (rrows Obj
 	if err != nil {
 		return
 	}
-	defer result.Close()
 	//	result.All(dst)
 	rrows = RethinkRows{result}
 	return
@@ -127,7 +180,7 @@ func (s RethinkStore) Update(id string, store string, src interface{}) (err erro
 }
 
 func (s RethinkStore) Delete(id string, store string) (err error) {
-	_, err = r.DB(s.Database).Table(store).Get(id).Delete(r.DeleteOpts{Durability: "soft"}).RunWrite(s.Session)
+	_, err = r.DB(s.Database).Table(store).Get(id).Delete(r.DeleteOpts{Durability: "hard"}).RunWrite(s.Session)
 	return
 }
 
@@ -169,7 +222,9 @@ func (s RethinkStore) FilterGet(filter map[string]interface{}, store string, dst
 }
 
 func (s RethinkStore) FilterGetAll(filter map[string]interface{}, count int, skip int, store string) (rrows ObjectRows, err error) {
-	result, err := r.DB(s.Database).Table(store).Filter(filter).Limit(count).Skip(skip).Run(s.Session)
+//	logger.Debug("Filter get all", "store", store, "filter", filter)
+	result, err := r.DB(s.Database).Table(store).OrderBy(
+		r.OrderByOpts{Index:r.Desc("id")}).Filter(filter).Limit(count).Skip(skip).Run(s.Session)
 	if err != nil {
 		return
 	}

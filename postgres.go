@@ -44,6 +44,10 @@ func (s PostgresRows) Next(dst interface{}) (bool, error) {
 	return false, nil
 }
 
+func (s PostgresRows) Close(){
+	s.cursor.Close()
+}
+
 func (s PostgresObjectStore) CreateDatabase() (err error) {
 	return nil
 }
@@ -137,6 +141,18 @@ func (s PostgresObjectStore) Since(id string, count, skip int, store string) (pr
 	}
 	prows = PostgresRows{rows}
 	return
+}
+
+func (s PostgresObjectStore) FilterBefore(id string, filter map[string]interface{}, count int, skip int, store string) (rows ObjectRows, err error){
+	return nil, errors.New("Not Implemented")
+}
+
+func (s PostgresObjectStore) FilterBeforeCount(id string, filter map[string]interface{}, count int, skip int, store string) (int64, error) {
+	return 0, errors.New("Not Implemented")
+}
+
+func (s PostgresObjectStore) FilterSince(id string, filter map[string]interface{}, count int, skip int, store string) (rows ObjectRows, err error){
+	return nil, errors.New("Not Implemented")
 }
 
 func (s PostgresObjectStore) Save(store string, src interface{}) (key string, err error) {

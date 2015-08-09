@@ -35,8 +35,12 @@ type ObjectStore interface {
 	All(count int, skip int, store string) (ObjectRows, error)
 	AllCursor(store string) (ObjectRows, error)
 
-	Since(id string, count int, skip int, store string) (ObjectRows, error) //Get all items after a key
-	Before(id string, count int, skip int, store string) (ObjectRows, error)
+	Since(id string, count int, skip int, store string) (ObjectRows, error) //Get all recent items from a key
+	Before(id string, count int, skip int, store string) (ObjectRows, error) //Get all existing items before a key
+
+	FilterSince(id string, filter map[string]interface{}, count int, skip int, store string) (ObjectRows, error) //Get all recent items from a key
+	FilterBefore(id string, filter map[string]interface{}, count int, skip int, store string) (ObjectRows, error) //Get all existing items before a key
+	FilterBeforeCount(id string, filter map[string]interface{}, count int, skip int, store string) (int64, error) //Get all existing items before a key
 
 	Get(key string, store string, dst interface{}) error
 	Save(store string, src interface{}) (string, error)
@@ -59,6 +63,7 @@ type ObjectStore interface {
 
 type ObjectRows interface {
 	Next(interface{}) (bool, error)
+	Close()
 }
 
 type StoreOptions map[string]interface{}
