@@ -1,11 +1,11 @@
 package gostore
 
 import (
+	"fmt"
 	r "github.com/dancannon/gorethink"
+	"github.com/dustin/gojson"
 	"github.com/mgutz/logxi/v1"
 	"strings"
-	"fmt"
-	"github.com/dustin/gojson"
 )
 
 var logger = log.New("gostore.rethink")
@@ -27,13 +27,13 @@ type RethinkRows struct {
 
 func (s RethinkRows) Next(dst interface{}) (bool, error) {
 	if !s.cursor.Next(dst) {
-//		logger.Debug("Error getting next", "err", s.cursor.Err(), "isNil", s.cursor.IsNil())
+		//		logger.Debug("Error getting next", "err", s.cursor.Err(), "isNil", s.cursor.IsNil())
 		return false, s.cursor.Err()
 	}
 	return true, nil
 }
 
-func (s RethinkRows) Close(){
+func (s RethinkRows) Close() {
 	s.cursor.Close()
 }
 
@@ -52,7 +52,7 @@ func (s RethinkStore) CreateTable(store string, sample interface{}) (err error) 
 }
 
 func (s RethinkStore) All(count int, skip int, store string) (rrows ObjectRows, err error) {
-	result, err := r.DB(s.Database).Table(store).OrderBy(r.OrderByOpts{Index:r.Desc("id")}).Run(s.Session)
+	result, err := r.DB(s.Database).Table(store).OrderBy(r.OrderByOpts{Index: r.Desc("id")}).Run(s.Session)
 	if err != nil {
 		return
 	}
@@ -85,15 +85,15 @@ func (s RethinkStore) Before(id string, count int, skip int, store string) (rows
 	return
 }
 
-func (s RethinkStore) FilterBefore(id string, filter map[string]interface{}, count int, skip int, store string) (rows ObjectRows, err error){
+func (s RethinkStore) FilterBefore(id string, filter map[string]interface{}, count int, skip int, store string) (rows ObjectRows, err error) {
 	result, err := r.DB(s.Database).Table(store).Between(
 		r.MinVal, id, r.BetweenOpts{RightBound: "closed"}).OrderBy(
-		r.OrderByOpts{Index:r.Desc("id")}).Filter(
+		r.OrderByOpts{Index: r.Desc("id")}).Filter(
 		filter).Limit(count).Run(s.Session)
 	if err != nil {
 		return
 	}
-//	var dst interface{}
+	//	var dst interface{}
 	f, _ := json.Marshal(filter)
 	logger.Debug("FilterBefore", "query",
 		fmt.Sprintf("r.db('%s').table('%s').between(r.minval, '%s').orderBy({index:r.desc('id')}).filter(%s).limit(%d)",
@@ -102,10 +102,10 @@ func (s RethinkStore) FilterBefore(id string, filter map[string]interface{}, cou
 	return
 }
 
-func (s RethinkStore) FilterBeforeCount(id string, filter map[string]interface{}, count int, skip int, store string) (int64, error){
+func (s RethinkStore) FilterBeforeCount(id string, filter map[string]interface{}, count int, skip int, store string) (int64, error) {
 	result, err := r.DB(s.Database).Table(store).Between(
 		r.MinVal, id).OrderBy(
-		r.OrderByOpts{Index:r.Desc("id")}).Filter(
+		r.OrderByOpts{Index: r.Desc("id")}).Filter(
 		filter).Count().Run(s.Session)
 	defer result.Close()
 
@@ -116,10 +116,10 @@ func (s RethinkStore) FilterBeforeCount(id string, filter map[string]interface{}
 	return cnt, nil
 }
 
-func (s RethinkStore) FilterSince(id string, filter map[string]interface{}, count int, skip int, store string) (rows ObjectRows, err error){
+func (s RethinkStore) FilterSince(id string, filter map[string]interface{}, count int, skip int, store string) (rows ObjectRows, err error) {
 	result, err := r.DB(s.Database).Table(store).Between(
-		id, r.MaxVal, r.BetweenOpts{LeftBound: "open", Index:"id"}).OrderBy(
-		r.OrderByOpts{Index:r.Desc("id")}).Filter(
+		id, r.MaxVal, r.BetweenOpts{LeftBound: "open", Index: "id"}).OrderBy(
+		r.OrderByOpts{Index: r.Desc("id")}).Filter(
 		filter).Limit(count).Run(s.Session)
 	if err != nil {
 		return
@@ -210,7 +210,7 @@ func (s RethinkStore) GetByField(name, val, store string, dst interface{}) (err 
 }
 
 func (s RethinkStore) FilterGet(filter map[string]interface{}, store string, dst interface{}) (err error) {
-	result, err := r.DB(s.Database).Table(store).Filter(filter).Run(s.Session)
+	result, err := r.DB(s.Database).Table(store).Filter(filter).Limit(1).Run(s.Session)
 	if err != nil {
 		return
 	}
@@ -222,9 +222,9 @@ func (s RethinkStore) FilterGet(filter map[string]interface{}, store string, dst
 }
 
 func (s RethinkStore) FilterGetAll(filter map[string]interface{}, count int, skip int, store string) (rrows ObjectRows, err error) {
-//	logger.Debug("Filter get all", "store", store, "filter", filter)
+	//	logger.Debug("Filter get all", "store", store, "filter", filter)
 	result, err := r.DB(s.Database).Table(store).OrderBy(
-		r.OrderByOpts{Index:r.Desc("id")}).Filter(filter).Limit(count).Skip(skip).Run(s.Session)
+		r.OrderByOpts{Index: r.Desc("id")}).Filter(filter).Limit(count).Skip(skip).Run(s.Session)
 	if err != nil {
 		return
 	}
