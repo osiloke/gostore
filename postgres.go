@@ -239,6 +239,10 @@ func (f QueryField) MarshalJSON() ([]byte, error) {
 	})
 }
 
+func (s PostgresObjectStore) FilterUpdate(filter map[string]interface{}, src interface{}, store string) (err error){
+	return errors.New("Not Implemented")
+}
+
 func (s PostgresObjectStore) FilterGet(filter map[string]interface{}, store string, dst interface{}) (err error) {
 	sfilter, _ := json.Marshal(filter)
 	result := s.db.Table(safeStoreName(store)).Select("raw").Where("raw @>  ?", string(sfilter)).Limit(1)

@@ -209,6 +209,11 @@ func (s RethinkStore) GetByField(name, val, store string, dst interface{}) (err 
 	return
 }
 
+func (s RethinkStore) FilterUpdate(filter map[string]interface{}, src interface{}, store string) (err error){
+	_, err = r.DB(s.Database).Table(store).Filter(filter).Limit(1).Update(src, r.UpdateOpts{Durability: "soft"}).RunWrite(s.Session)
+	return
+}
+
 func (s RethinkStore) FilterGet(filter map[string]interface{}, store string, dst interface{}) (err error) {
 	result, err := r.DB(s.Database).Table(store).Filter(filter).Limit(1).Run(s.Session)
 	if err != nil {

@@ -48,7 +48,7 @@ type ObjectStore interface {
 	Delete(key string, store string) error
 
 	//Filter
-
+	FilterUpdate(filter map[string]interface{}, src interface{}, store string) error
 	FilterGet(filter map[string]interface{}, store string, dst interface{}) error
 	FilterGetAll(filter map[string]interface{}, count int, skip int, store string) (ObjectRows, error)
 	FilterDelete(filter map[string]interface{}, store string) error
