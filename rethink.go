@@ -6,6 +6,9 @@ import (
 	"github.com/dustin/gojson"
 	"github.com/mgutz/logxi/v1"
 	"strings"
+	"github.com/jinzhu/now"
+	"github.com/asaskevich/govalidator"
+	"time"
 )
 
 var logger = log.New("gostore.rethink")
@@ -45,10 +48,99 @@ func (s RethinkStore) GetStore() interface{} {
 	return s.Session
 }
 
-func (s RethinkStore) CreateTable(store string, sample interface{}) (err error) {
-	_, err = r.DB(s.Database).TableCreate(store).RunWrite(s.Session)
+func (rs RethinkStore) CreateTable(store string, schema interface{}) (err error) {
+	_, err = r.DB(rs.Database).TableCreate(store).RunWrite(rs.Session)
+	//also create indexes
+	if schema != nil {
+		s := schema.(map[string]interface{})
+		if indexes, ok := s["index"].(map[string]interface{}); ok {
+			for name, index_vals := range indexes {
+				if _, ok := index_vals.([]string); ok {
+					//				if _, err = r.DB(rs.Database).Table(store).IndexCreate(name).RunWrite(rs.Session); err != nil{
+					//					return
+					//				}
+				} else {
+					if _, err = r.DB(rs.Database).Table(store).IndexCreate(name).Run(rs.Session); err != nil {
+						// logger.Warn("cannot create index [" + name + "] in " + store)
+						println("cannot create index")
+						println(err.Error())
+
+					} else {
+						logger.Info("created index [" + name + "] in " + store)
+					}
+				}
+			}
+		}
+	}
 
 	return
+}
+
+type TermOperators map[string]func(args ...interface{}) interface{}
+
+var filterOps TermOperators = TermOperators{
+	">": func(args ...interface{}) interface{} {
+		//this also handles args
+		vals := strings.Split(args[1].(string), "|")
+		baseTerm := args[0].(r.Term)
+		if len(vals) > 0{
+			//check type
+			if vals[1] == "dt"{
+				if it, err := govalidator.ToInt(vals[0]); err == nil{
+					logger.Info("> op date", "time", it)
+					return baseTerm.Gt(r.EpochTime(it))
+				}
+//				t, err := now.Parse(vals[0])
+				if t, err := time.Parse(
+					time.RFC3339,
+					vals[0]);err == nil {
+					return baseTerm.Gt(r.EpochTime(t.Unix()))
+				}
+				if t, err := now.Parse(vals[0]);err == nil {
+					return baseTerm.Gt(r.EpochTime(t.Unix()))
+				}
+			}
+		}
+		return baseTerm.Gt(vals[0])
+	},
+	"<": func(args ...interface{}) interface{} {
+		baseTerm := args[0].(r.Term)
+		return baseTerm.Lt(args[1])
+	},
+}
+
+// TODO: Transforms filter args into rethinkdb filter args
+func (s RethinkStore) ParseFilterArgs(filter map[string]interface{}, indexes []string) r.Term {
+	var (
+		t r.Term = r.And(1)
+	)
+	//TODO: Optimize this by passing indexes as well as field types
+	for k, v := range filter {
+		val := v.(string)
+		first := string([]rune(val)[0])
+		if strings.Contains("/>!<", first) {
+			if op, ok := filterOps[first]; ok {
+//				var rv interface{}
+				tv := string([]rune(val)[1:])
+//				if _rv, err := govalidator.ToInt(tv); err == nil{
+//					rv = _rv
+//				}else{
+//					rv = tv
+//				}
+				t = t.And(op(r.Row.Field(k), tv))
+			}
+		}else{
+//			var rv interface{}
+//			if _rv, err := govalidator.ToInt(v.(string)); err == nil{
+//				rv = _rv
+//			}else{
+//				rv = v
+//			}
+			t = t.And(r.Row.Field(k).Eq(v))
+		}
+	}
+	println(t.String())
+	return t
 }
 
 func (s RethinkStore) All(count int, skip int, store string) (rrows ObjectRows, err error) {
@@ -89,7 +181,7 @@ func (s RethinkStore) FilterBefore(id string, filter map[string]interface{}, cou
 	result, err := r.DB(s.Database).Table(store).Between(
 		r.MinVal, id, r.BetweenOpts{RightBound: "closed"}).OrderBy(
 		r.OrderByOpts{Index: r.Desc("id")}).Filter(
-		filter).Limit(count).Run(s.Session)
+		s.ParseFilterArgs(filter, nil)).Limit(count).Run(s.Session)
 	if err != nil {
 		return
 	}
@@ -106,7 +198,7 @@ func (s RethinkStore) FilterBeforeCount(id string, filter map[string]interface{}
 	result, err := r.DB(s.Database).Table(store).Between(
 		r.MinVal, id).OrderBy(
 		r.OrderByOpts{Index: r.Desc("id")}).Filter(
-		filter).Count().Run(s.Session)
+		s.ParseFilterArgs(filter, nil)).Count().Run(s.Session)
 	defer result.Close()
 
 	var cnt int64
@@ -120,7 +212,7 @@ func (s RethinkStore) FilterSince(id string, filter map[string]interface{}, coun
 	result, err := r.DB(s.Database).Table(store).Between(
 		id, r.MaxVal, r.BetweenOpts{LeftBound: "open", Index: "id"}).OrderBy(
 		r.OrderByOpts{Index: r.Desc("id")}).Filter(
-		filter).Limit(count).Run(s.Session)
+		s.ParseFilterArgs(filter, nil)).Limit(count).Run(s.Session)
 	if err != nil {
 		return
 	}
@@ -209,8 +301,8 @@ func (s RethinkStore) GetByField(name, val, store string, dst interface{}) (err 
 	return
 }
 
-func (s RethinkStore) FilterUpdate(filter map[string]interface{}, src interface{}, store string) (err error){
-	_, err = r.DB(s.Database).Table(store).Filter(filter).Limit(1).Update(src, r.UpdateOpts{Durability: "soft"}).RunWrite(s.Session)
+func (s RethinkStore) FilterUpdate(filter map[string]interface{}, src interface{}, store string) (err error) {
+	_, err = r.DB(s.Database).Table(store).Filter(s.ParseFilterArgs(filter, nil)).Limit(1).Update(src, r.UpdateOpts{Durability: "soft"}).RunWrite(s.Session)
 	return
 }
 
@@ -229,7 +321,7 @@ func (s RethinkStore) FilterGet(filter map[string]interface{}, store string, dst
 func (s RethinkStore) FilterGetAll(filter map[string]interface{}, count int, skip int, store string) (rrows ObjectRows, err error) {
 	//	logger.Debug("Filter get all", "store", store, "filter", filter)
 	result, err := r.DB(s.Database).Table(store).OrderBy(
-		r.OrderByOpts{Index: r.Desc("id")}).Filter(filter).Limit(count).Skip(skip).Run(s.Session)
+		r.OrderByOpts{Index: r.Desc("id")}).Filter(s.ParseFilterArgs(filter, nil)).Limit(count).Skip(skip).Run(s.Session)
 	if err != nil {
 		return
 	}
@@ -238,7 +330,7 @@ func (s RethinkStore) FilterGetAll(filter map[string]interface{}, count int, ski
 }
 
 func (s RethinkStore) FilterDelete(filter map[string]interface{}, store string) (err error) {
-	_, err = r.DB(s.Database).Table(store).Filter(filter).Delete(r.DeleteOpts{Durability: "soft"}).RunWrite(s.Session)
+	_, err = r.DB(s.Database).Table(store).Filter(s.ParseFilterArgs(filter, nil)).Delete(r.DeleteOpts{Durability: "soft"}).RunWrite(s.Session)
 	if err == r.ErrEmptyResult {
 		return ErrNotFound
 	}
@@ -246,7 +338,7 @@ func (s RethinkStore) FilterDelete(filter map[string]interface{}, store string) 
 }
 
 func (s RethinkStore) FilterCount(filter map[string]interface{}, store string) (int64, error) {
-	result, err := r.DB(s.Database).Table(store).Filter(filter).Count().Run(s.Session)
+	result, err := r.DB(s.Database).Table(store).Filter(s.ParseFilterArgs(filter, nil)).Count().Run(s.Session)
 	if err != nil {
 		return 0, err
 	}
