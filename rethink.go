@@ -2,12 +2,12 @@ package gostore
 
 import (
 	"fmt"
+	"github.com/asaskevich/govalidator"
 	r "github.com/dancannon/gorethink"
 	"github.com/dustin/gojson"
+	"github.com/jinzhu/now"
 	"github.com/mgutz/logxi/v1"
 	"strings"
-	"github.com/jinzhu/now"
-	"github.com/asaskevich/govalidator"
 	"time"
 )
 
@@ -79,24 +79,32 @@ func (rs RethinkStore) CreateTable(store string, schema interface{}) (err error)
 type TermOperators map[string]func(args ...interface{}) interface{}
 
 var filterOps TermOperators = TermOperators{
+	"~": func(args ...interface{}) interface{} {
+		vals := strings.Split(args[1].(string), "|")
+		baseTerm := args[0].(r.Term)
+		if len(vals) > 0 {
+
+		}
+		return baseTerm.Match(vals[0])
+	},
 	">": func(args ...interface{}) interface{} {
 		//this also handles args
 		vals := strings.Split(args[1].(string), "|")
 		baseTerm := args[0].(r.Term)
-		if len(vals) > 0{
+		if len(vals) > 0 {
 			//check type
-			if vals[1] == "dt"{
-				if it, err := govalidator.ToInt(vals[0]); err == nil{
+			if vals[1] == "dt" {
+				if it, err := govalidator.ToInt(vals[0]); err == nil {
 					logger.Info("> op date", "time", it)
 					return baseTerm.Gt(r.EpochTime(it))
 				}
-//				t, err := now.Parse(vals[0])
+				//				t, err := now.Parse(vals[0])
 				if t, err := time.Parse(
 					time.RFC3339,
-					vals[0]);err == nil {
+					vals[0]); err == nil {
 					return baseTerm.Gt(r.EpochTime(t.Unix()))
 				}
-				if t, err := now.Parse(vals[0]);err == nil {
+				if t, err := now.Parse(vals[0]); err == nil {
 					return baseTerm.Gt(r.EpochTime(t.Unix()))
 				}
 			}
@@ -118,24 +126,23 @@ func (s RethinkStore) ParseFilterArgs(filter map[string]interface{}, indexes []s
 	for k, v := range filter {
 		val := v.(string)
 		first := string([]rune(val)[0])
-		if strings.Contains("/>!<", first) {
-			if op, ok := filterOps[first]; ok {
-//				var rv interface{}
-				tv := string([]rune(val)[1:])
-//				if _rv, err := govalidator.ToInt(tv); err == nil{
-//					rv = _rv
-//				}else{
-//					rv = tv
-//				}
-				t = t.And(op(r.Row.Field(k), tv))
-			}
-		}else{
-//			var rv interface{}
-//			if _rv, err := govalidator.ToInt(v.(string)); err == nil{
-//				rv = _rv
-//			}else{
-//				rv = v
-//			}
+		// if strings.Contains("/>!<~", first) {
+		if op, ok := filterOps[first]; ok {
+			//				var rv interface{}
+			tv := string([]rune(val)[1:])
+			//				if _rv, err := govalidator.ToInt(tv); err == nil{
+			//					rv = _rv
+			//				}else{
+			//					rv = tv
+			//				}
+			t = t.And(op(r.Row.Field(k), tv))
+		} else {
+			//			var rv interface{}
+			//			if _rv, err := govalidator.ToInt(v.(string)); err == nil{
+			//				rv = _rv
+			//			}else{
+			//				rv = v
+			//			}
 			t = t.And(r.Row.Field(k).Eq(v))
 		}
 	}
