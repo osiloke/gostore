@@ -44,7 +44,7 @@ func (s PostgresRows) Next(dst interface{}) (bool, error) {
 	return false, nil
 }
 
-func (s PostgresRows) Close(){
+func (s PostgresRows) Close() {
 	s.cursor.Close()
 }
 
@@ -143,15 +143,15 @@ func (s PostgresObjectStore) Since(id string, count, skip int, store string) (pr
 	return
 }
 
-func (s PostgresObjectStore) FilterBefore(id string, filter map[string]interface{}, count int, skip int, store string) (rows ObjectRows, err error){
+func (s PostgresObjectStore) FilterBefore(id string, filter map[string]interface{}, count int, skip int, store string, opts ObjectStoreOptions) (rows ObjectRows, err error) {
 	return nil, errors.New("Not Implemented")
 }
 
-func (s PostgresObjectStore) FilterBeforeCount(id string, filter map[string]interface{}, count int, skip int, store string) (int64, error) {
+func (s PostgresObjectStore) FilterBeforeCount(id string, filter map[string]interface{}, count int, skip int, store string, opts ObjectStoreOptions) (int64, error) {
 	return 0, errors.New("Not Implemented")
 }
 
-func (s PostgresObjectStore) FilterSince(id string, filter map[string]interface{}, count int, skip int, store string) (rows ObjectRows, err error){
+func (s PostgresObjectStore) FilterSince(id string, filter map[string]interface{}, count int, skip int, store string, opts ObjectStoreOptions) (rows ObjectRows, err error) {
 	return nil, errors.New("Not Implemented")
 }
 
@@ -239,11 +239,11 @@ func (f QueryField) MarshalJSON() ([]byte, error) {
 	})
 }
 
-func (s PostgresObjectStore) FilterUpdate(filter map[string]interface{}, src interface{}, store string) (err error){
+func (s PostgresObjectStore) FilterUpdate(filter map[string]interface{}, src interface{}, store string) (err error) {
 	return errors.New("Not Implemented")
 }
 
-func (s PostgresObjectStore) FilterGet(filter map[string]interface{}, store string, dst interface{}) (err error) {
+func (s PostgresObjectStore) FilterGet(filter map[string]interface{}, store string, dst interface{}, opts ObjectStoreOptions) (err error) {
 	sfilter, _ := json.Marshal(filter)
 	result := s.db.Table(safeStoreName(store)).Select("raw").Where("raw @>  ?", string(sfilter)).Limit(1)
 	if result.Error != nil {
@@ -260,7 +260,7 @@ func (s PostgresObjectStore) FilterGet(filter map[string]interface{}, store stri
 	return errors.New("Not Implemented")
 }
 
-func (s PostgresObjectStore) FilterGetAll(filter map[string]interface{}, count int, skip int, store string) (prows ObjectRows, err error) {
+func (s PostgresObjectStore) FilterGetAll(filter map[string]interface{}, count int, skip int, store string, opts ObjectStoreOptions) (prows ObjectRows, err error) {
 	sfilter, _ := json.Marshal(filter)
 	rows, err := s.db.Table(safeStoreName(store)).Select("raw").Where("raw @>  ?", string(sfilter)).Rows()
 	if err != nil {
@@ -273,11 +273,11 @@ func (s PostgresObjectStore) FilterGetAll(filter map[string]interface{}, count i
 	return
 }
 
-func (s PostgresObjectStore) FilterDelete(filter map[string]interface{}, store string) (err error) {
+func (s PostgresObjectStore) FilterDelete(filter map[string]interface{}, store string, opts ObjectStoreOptions) (err error) {
 	return errors.New("Not Implemented")
 }
 
-func (s PostgresObjectStore) FilterCount(filter map[string]interface{}, store string) (int64, error){
+func (s PostgresObjectStore) FilterCount(filter map[string]interface{}, store string, opts ObjectStoreOptions) (int64, error) {
 	return 0, errors.New("Not Implemented")
 }
 

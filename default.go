@@ -22,6 +22,19 @@ type Store interface {
 	Stats(bucket string) (map[string]interface{}, error)
 	GetStoreObject() interface{}
 }
+
+type ObjectStoreOptions interface {
+	GetIndexes() []string
+}
+
+type DefaultObjectStoreOptions struct {
+	Index []string
+}
+
+func (d DefaultObjectStoreOptions) GetIndexes() []string {
+	return d.Index
+}
+
 type ObjectStore interface {
 	//Management Api
 	CreateDatabase() error
@@ -35,12 +48,12 @@ type ObjectStore interface {
 	All(count int, skip int, store string) (ObjectRows, error)
 	AllCursor(store string) (ObjectRows, error)
 
-	Since(id string, count int, skip int, store string) (ObjectRows, error) //Get all recent items from a key
+	Since(id string, count int, skip int, store string) (ObjectRows, error)  //Get all recent items from a key
 	Before(id string, count int, skip int, store string) (ObjectRows, error) //Get all existing items before a key
 
-	FilterSince(id string, filter map[string]interface{}, count int, skip int, store string) (ObjectRows, error) //Get all recent items from a key
-	FilterBefore(id string, filter map[string]interface{}, count int, skip int, store string) (ObjectRows, error) //Get all existing items before a key
-	FilterBeforeCount(id string, filter map[string]interface{}, count int, skip int, store string) (int64, error) //Get all existing items before a key
+	FilterSince(id string, filter map[string]interface{}, count int, skip int, store string, opts ObjectStoreOptions) (ObjectRows, error)  //Get all recent items from a key
+	FilterBefore(id string, filter map[string]interface{}, count int, skip int, store string, opts ObjectStoreOptions) (ObjectRows, error) //Get all existing items before a key
+	FilterBeforeCount(id string, filter map[string]interface{}, count int, skip int, store string, opts ObjectStoreOptions) (int64, error) //Get all existing items before a key
 
 	Get(key string, store string, dst interface{}) error
 	Save(store string, src interface{}) (string, error)
@@ -49,10 +62,10 @@ type ObjectStore interface {
 
 	//Filter
 	FilterUpdate(filter map[string]interface{}, src interface{}, store string) error
-	FilterGet(filter map[string]interface{}, store string, dst interface{}) error
-	FilterGetAll(filter map[string]interface{}, count int, skip int, store string) (ObjectRows, error)
-	FilterDelete(filter map[string]interface{}, store string) error
-	FilterCount(filter map[string]interface{}, store string) (int64, error)
+	FilterGet(filter map[string]interface{}, store string, dst interface{}, opts ObjectStoreOptions) error
+	FilterGetAll(filter map[string]interface{}, count int, skip int, store string, opts ObjectStoreOptions) (ObjectRows, error)
+	FilterDelete(filter map[string]interface{}, store string, opts ObjectStoreOptions) error
+	FilterCount(filter map[string]interface{}, store string, opts ObjectStoreOptions) (int64, error)
 
 	//Misc gets
 	GetByField(name, val, store string, dst interface{}) error
