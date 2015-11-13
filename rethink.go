@@ -62,8 +62,8 @@ func (rs RethinkStore) CreateTable(store string, schema interface{}) (err error)
 				} else {
 					if _, err = r.DB(rs.Database).Table(store).IndexCreate(name).Run(rs.Session); err != nil {
 						// logger.Warn("cannot create index [" + name + "] in " + store)
-						logger.Warn("cannot create index")
-						// println(err.Error())
+						// logger.Warn("cannot create index")
+						println(err.Error())
 
 					} else {
 						logger.Info("created index [" + name + "] in " + store)
@@ -147,7 +147,7 @@ func (s RethinkStore) ParseFilterArgs(filter map[string]interface{}, indexes []s
 			t = t.And(r.Row.Field(k).Eq(v))
 		}
 	}
-	logger.Debug(t.String())
+	// logger.Debug(t.String())
 	return t
 }
 
@@ -198,7 +198,8 @@ func (s RethinkStore) Since(id string, count, skip int, store string) (rrows Obj
 }
 
 func (s RethinkStore) Get(id, store string, dst interface{}) (err error) {
-	result, err := r.DB(s.Database).Table(store).Get(id).Run(s.Session)
+	var rootTerm = r.DB(s.Database).Table(store)
+	result, err := rootTerm.Get(id).Run(s.Session)
 	if err != nil {
 		//		logger.Error("Get", "err", err)
 		return
@@ -206,6 +207,11 @@ func (s RethinkStore) Get(id, store string, dst interface{}) (err error) {
 	defer result.Close()
 	if result.Err() != nil {
 		return result.Err()
+	}
+
+	logger.Debug("Get", "query", rootTerm.String())
+	if result.IsNil(){
+		return ErrNotFound
 	}
 	if err = result.One(dst); err == r.ErrEmptyResult {
 		//		logger.Error("Get", "err", err)
@@ -352,12 +358,17 @@ func (s RethinkStore) FilterGet(filter map[string]interface{}, store string, dst
 	}
 	rootTerm = rootTerm.Filter(s.ParseFilterArgs(filter, nil, opts))
 	result, err := rootTerm.Limit(1).Run(s.Session)
-	logger.Debug("filter get", "opts", opts, "filter", filter, "query", rootTerm.String())
+	// logger.Debug("filter get", "opts", opts, "filter", filter, "query", rootTerm.String())
 	if err != nil {
 		logger.Error("failed to get", "err", err.Error())
 		return
 	}
 	defer result.Close()
+
+	if result.IsNil(){
+		return ErrNotFound
+	}
+	logger.Debug("FilterGet", "query", rootTerm.String())
 	if err = result.One(dst); err == r.ErrEmptyResult {
 		return ErrNotFound
 	}
@@ -369,11 +380,17 @@ func (s RethinkStore) FilterGetAll(filter map[string]interface{}, count int, ski
 	_ = "breakpoint"
 	_ = "FilterGetAll"
 	var rootTerm = s.getRootTerm(store, filter, opts)
-	logger.Debug("FilterGetAll", "query", rootTerm.String())
-	result, err := rootTerm.Limit(count).Skip(skip).Run(s.Session)
+	if count > 0{
+		rootTerm = rootTerm.Limit(count)
+	}
+	result, err := rootTerm.Skip(skip).Run(s.Session)
 	if err != nil {
 		logger.Error("err", "err", err)
 		return
+	}
+	logger.Debug("FilterGetAll", "query", rootTerm.String(), "err", result.Err())
+	if result.IsNil(){
+		return nil, ErrNotFound
 	}
 	rrows = RethinkRows{result}
 	return
@@ -403,6 +420,7 @@ func (s RethinkStore) FilterCount(filter map[string]interface{}, store string, o
 	if err = result.One(&cnt); err != nil {
 		return 0, ErrNotFound
 	}
+	logger.Debug("FilterCount", "query", rootTerm.String())
 	return cnt, nil
 }
 
