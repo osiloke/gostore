@@ -185,6 +185,19 @@ func (s PostgresObjectStore) Save(store string, src interface{}) (key string, er
 }
 
 func (s PostgresObjectStore) Update(id string, store string, src interface{}) (err error) {
+	//TODO:perform update by retrieving existing data and merging data
+	if data, err := json.Marshal(src); err == nil {
+		err = s.db.Table(safeStoreName(store)).Where("id = ?", id).Updates(map[string]interface{}{"raw": data}).Error
+		if err == sql.ErrNoRows {
+			return ErrNotFound
+		}
+	}
+
+	return
+
+}
+
+func (s PostgresObjectStore) Replace(id string, store string, src interface{}) (err error) {
 	if data, err := json.Marshal(src); err == nil {
 		err = s.db.Table(safeStoreName(store)).Where("id = ?", id).Updates(map[string]interface{}{"raw": data}).Error
 		if err == sql.ErrNoRows {
@@ -239,7 +252,10 @@ func (f QueryField) MarshalJSON() ([]byte, error) {
 	})
 }
 
-func (s PostgresObjectStore) FilterUpdate(filter map[string]interface{}, src interface{}, store string) (err error) {
+func (s PostgresObjectStore) FilterUpdate(filter map[string]interface{}, src interface{}, store string, opts ObjectStoreOptions) (err error) {
+	return errors.New("Not Implemented")
+}
+func (s PostgresObjectStore) FilterReplace(filter map[string]interface{}, src interface{}, store string, opts ObjectStoreOptions) (err error) {
 	return errors.New("Not Implemented")
 }
 

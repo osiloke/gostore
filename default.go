@@ -58,10 +58,12 @@ type ObjectStore interface {
 	Get(key string, store string, dst interface{}) error
 	Save(store string, src interface{}) (string, error)
 	Update(key string, store string, src interface{}) error
+	Replace(key string, store string, src interface{}) error
 	Delete(key string, store string) error
 
 	//Filter
-	FilterUpdate(filter map[string]interface{}, src interface{}, store string) error
+	FilterUpdate(filter map[string]interface{}, src interface{}, store string, opts ObjectStoreOptions) error
+	FilterReplace(filter map[string]interface{}, src interface{}, store string,  opts ObjectStoreOptions) error
 	FilterGet(filter map[string]interface{}, store string, dst interface{}, opts ObjectStoreOptions) error
 	FilterGetAll(filter map[string]interface{}, count int, skip int, store string, opts ObjectStoreOptions) (ObjectRows, error)
 	FilterDelete(filter map[string]interface{}, store string, opts ObjectStoreOptions) error

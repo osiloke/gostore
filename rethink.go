@@ -28,6 +28,10 @@ type RethinkRows struct {
 	cursor *r.Cursor
 }
 
+func NewRethinkRows(cursor *r.Cursor) RethinkRows{
+	return RethinkRows{cursor}
+}
+
 func (s RethinkRows) Next(dst interface{}) (bool, error) {
 	if !s.cursor.Next(dst) {
 		//		logger.Debug("Error getting next", "err", s.cursor.Err(), "isNil", s.cursor.IsNil())
@@ -78,6 +82,29 @@ func (rs RethinkStore) CreateTable(store string, schema interface{}) (err error)
 
 type TermOperators map[string]func(args ...interface{}) interface{}
 
+func parseFilter(args string) (dtarg interface{}){
+	//this also handles args
+	vals := strings.Split(args, "|")
+	if len(vals) > 1 {
+		//check type
+		if vals[1] == "dt" {
+			if it, err := govalidator.ToInt(vals[0]); err == nil {
+				logger.Info("< op date", "time", it)
+				return r.EpochTime(it)
+			}
+			//				t, err := now.Parse(vals[0])
+			if t, err := time.Parse(
+				time.RFC3339,
+				vals[0]); err == nil {
+				return r.EpochTime(t.Unix())
+			}
+			if t, err := now.Parse(vals[0]); err == nil {
+				return r.EpochTime(t.Unix())
+			}
+		}
+	}
+	return vals[0]
+}
 var filterOps TermOperators = TermOperators{
 	"~": func(args ...interface{}) interface{} {
 		vals := strings.Split(args[1].(string), "|")
@@ -88,32 +115,12 @@ var filterOps TermOperators = TermOperators{
 		return baseTerm.Match(vals[0])
 	},
 	">": func(args ...interface{}) interface{} {
-		//this also handles args
-		vals := strings.Split(args[1].(string), "|")
 		baseTerm := args[0].(r.Term)
-		if len(vals) > 0 {
-			//check type
-			if vals[1] == "dt" {
-				if it, err := govalidator.ToInt(vals[0]); err == nil {
-					logger.Info("> op date", "time", it)
-					return baseTerm.Gt(r.EpochTime(it))
-				}
-				//				t, err := now.Parse(vals[0])
-				if t, err := time.Parse(
-					time.RFC3339,
-					vals[0]); err == nil {
-					return baseTerm.Gt(r.EpochTime(t.Unix()))
-				}
-				if t, err := now.Parse(vals[0]); err == nil {
-					return baseTerm.Gt(r.EpochTime(t.Unix()))
-				}
-			}
-		}
-		return baseTerm.Gt(vals[0])
+		return baseTerm.Gt(parseFilter(args[1].(string)))
 	},
 	"<": func(args ...interface{}) interface{} {
 		baseTerm := args[0].(r.Term)
-		return baseTerm.Lt(args[1])
+		return baseTerm.Lt(parseFilter(args[1].(string)))
 	},
 }
 
@@ -241,6 +248,11 @@ func (s RethinkStore) Update(id string, store string, src interface{}) (err erro
 
 }
 
+func (s RethinkStore) Replace(id string, store string, src interface{}) (err error) {
+	_, err = r.DB(s.Database).Table(store).Get(id).Replace(src, r.ReplaceOpts{Durability: "soft"}).RunWrite(s.Session)
+	return
+}
+
 func (s RethinkStore) Delete(id string, store string) (err error) {
 	_, err = r.DB(s.Database).Table(store).Get(id).Delete(r.DeleteOpts{Durability: "hard"}).RunWrite(s.Session)
 	return
@@ -339,8 +351,13 @@ func (s RethinkStore) FilterSince(id string, filter map[string]interface{}, coun
 	rows = RethinkRows{result}
 	return
 }
-func (s RethinkStore) FilterUpdate(filter map[string]interface{}, src interface{}, store string) (err error) {
-	_, err = r.DB(s.Database).Table(store).Limit(1).Update(src, r.UpdateOpts{Durability: "soft"}).RunWrite(s.Session)
+func (s RethinkStore) FilterUpdate(filter map[string]interface{}, src interface{}, store string, opts ObjectStoreOptions) (err error) {
+	_, err = r.DB(s.Database).Table(store).Update(src, r.UpdateOpts{Durability: "soft"}).RunWrite(s.Session)
+	return
+}
+
+func (s RethinkStore) FilterReplace(filter map[string]interface{}, src interface{}, store string, opts ObjectStoreOptions) (err error) {
+	_, err = r.DB(s.Database).Table(store).Replace(src, r.ReplaceOpts{Durability: "soft"}).RunWrite(s.Session)
 	return
 }
 
@@ -358,6 +375,7 @@ func (s RethinkStore) FilterGet(filter map[string]interface{}, store string, dst
 	}
 	rootTerm = rootTerm.Filter(s.ParseFilterArgs(filter, nil, opts))
 	result, err := rootTerm.Limit(1).Run(s.Session)
+	logger.Debug("FilterGet", "query", rootTerm.String())
 	// logger.Debug("filter get", "opts", opts, "filter", filter, "query", rootTerm.String())
 	if err != nil {
 		logger.Error("failed to get", "err", err.Error())
@@ -368,7 +386,6 @@ func (s RethinkStore) FilterGet(filter map[string]interface{}, store string, dst
 	if result.IsNil(){
 		return ErrNotFound
 	}
-	logger.Debug("FilterGet", "query", rootTerm.String())
 	if err = result.One(dst); err == r.ErrEmptyResult {
 		return ErrNotFound
 	}
