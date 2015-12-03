@@ -52,25 +52,39 @@ func (s RethinkStore) GetStore() interface{} {
 	return s.Session
 }
 
+func hasIndex(name string, indexes []string) bool{
+	for _, v := range indexes{
+		if v == name{
+			return true
+		}
+	}
+	return false
+}
 func (rs RethinkStore) CreateTable(store string, schema interface{}) (err error) {
+	var existingIndexes []string
 	_, err = r.DB(rs.Database).TableCreate(store).RunWrite(rs.Session)
+	result, _ := r.DB(rs.Database).Table(store).IndexList().Run(rs.Session)
+	result.One(&existingIndexes)
+	logger.Debug("existing indexes",  "i",existingIndexes)
 	//also create indexes
 	if schema != nil {
 		s := schema.(map[string]interface{})
 		if indexes, ok := s["index"].(map[string]interface{}); ok {
 			for name, index_vals := range indexes {
-				if _, ok := index_vals.([]string); ok {
-					//				if _, err = r.DB(rs.Database).Table(store).IndexCreate(name).RunWrite(rs.Session); err != nil{
-					//					return
-					//				}
-				} else {
-					if _, err = r.DB(rs.Database).Table(store).IndexCreate(name).Run(rs.Session); err != nil {
-						// logger.Warn("cannot create index [" + name + "] in " + store)
-						// logger.Warn("cannot create index")
-						println(err.Error())
-
+				if !hasIndex(name, existingIndexes){
+					if _, ok := index_vals.([]string); ok {
+						//				if _, err = r.DB(rs.Database).Table(store).IndexCreate(name).RunWrite(rs.Session); err != nil{
+						//					return
+						//				}
 					} else {
-						logger.Info("created index [" + name + "] in " + store)
+						if _, err = r.DB(rs.Database).Table(store).IndexCreate(name).Run(rs.Session); err != nil {
+							// logger.Warn("cannot create index [" + name + "] in " + store)
+							// logger.Warn("cannot create index")
+							println(err.Error())
+
+						} else {
+							logger.Info("created index [" + name + "] in " + store)
+						}
 					}
 				}
 			}
@@ -287,17 +301,38 @@ func (s RethinkStore) GetByField(name, val, store string, dst interface{}) (err 
 func (s RethinkStore) getRootTerm(store string, filter map[string]interface{}, opts ObjectStoreOptions) (rootTerm r.Term) {
 	rootTerm = r.DB(s.Database).Table(store)
 	indexes := opts.GetIndexes()
+	logger.Debug("getRootTerm", "store", store, "filter", filter, "opts", opts)
 	var hasIndex = false
-	for _, name := range indexes {
+	var hasMultiIndex = false
+	var indexName string
+	var indexVal string
+	for name, _ := range indexes {
+		logger.Debug("checking index "+name)
 		if val, ok := filter[name].(string); ok {
-			rootTerm = rootTerm.GetAllByIndex(name, val)
 			hasIndex = true
+			indexVal = val
+			indexName = name
+			ix_id_name := name+"_id"
+			if _, ok := indexes[ix_id_name]; ok {
+				indexName = ix_id_name
+				hasMultiIndex = true
+				break
+			}
 			break
 		}
 	}
 	if !hasIndex {
 		rootTerm = rootTerm.OrderBy(
 			r.OrderByOpts{Index: r.Desc("id")})
+	}else{
+			if hasMultiIndex{
+				rootTerm = rootTerm.Between(
+					[]interface{}{indexVal, r.MinVal},
+					[]interface{}{indexVal, r.MaxVal},
+					r.BetweenOpts{Index: indexName, RightBound: "closed"}).OrderBy(r.OrderByOpts{Index: r.Desc(indexName)})
+		 }else{
+			 rootTerm = rootTerm.GetAllByIndex(indexName, indexVal)
+		 }
 	}
 	rootTerm = rootTerm.Filter(s.ParseFilterArgs(filter, nil, opts))
 	return
@@ -367,9 +402,9 @@ func (s RethinkStore) FilterGet(filter map[string]interface{}, store string, dst
 	// var rootTerm = s.getRootTerm(store, filter, opts)
 	var rootTerm = r.DB(s.Database).Table(store)
 	indexes := opts.GetIndexes()
-	for _, name := range indexes {
-		if val, ok := filter[name].(string); ok {
-			rootTerm = rootTerm.GetAllByIndex(name, val)
+	for k, _ := range indexes {
+		if val, ok := filter[k].(string); ok {
+			rootTerm = rootTerm.GetAllByIndex(k, val)
 			break
 		}
 	}

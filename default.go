@@ -24,14 +24,14 @@ type Store interface {
 }
 
 type ObjectStoreOptions interface {
-	GetIndexes() []string
+	GetIndexes() map[string][]string
 }
 
 type DefaultObjectStoreOptions struct {
-	Index []string
+	Index map[string][]string
 }
 
-func (d DefaultObjectStoreOptions) GetIndexes() []string {
+func (d DefaultObjectStoreOptions) GetIndexes() map[string][]string {
 	return d.Index
 }
 

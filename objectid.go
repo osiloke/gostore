@@ -103,7 +103,7 @@ func NewObjectIdWithTime(t time.Time) ObjectId {
 // String returns a hex string representation of the id.
 // Example: ObjectIdHex("4d88e15b60f486e428412dc9").
 func (id ObjectId) String() string {
-	return fmt.Sprintf(`ObjectIdHex("%x")`, string(id))
+	return fmt.Sprintf(`%x`, string(id))
 }
 
 // Hex returns a hex representation of the ObjectId.
