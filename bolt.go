@@ -7,6 +7,7 @@ import (
 	"github.com/fatih/structs"
 	"log"
 	"time"
+	"github.com/dustin/gojson"
 )
 
 
@@ -57,7 +58,7 @@ func PrefixGet(prefix []byte, bucket []byte, db *bolt.DB) (k, v []byte, err erro
 	return
 }
 
-func (s BoltStore) Get(key []byte, resource string) (v [][]byte, err error) {
+func (s BoltStore) _Get(key []byte, resource string) (v [][]byte, err error) {
 	s.CreateBucket(resource)
 	vv, err := Get(key, []byte(resource), s.Db)
 	if vv != nil {
@@ -66,7 +67,7 @@ func (s BoltStore) Get(key []byte, resource string) (v [][]byte, err error) {
 	return
 }
 
-func (s BoltStore) PrefixGet(prefix []byte, resource string) (v [][]byte, err error) {
+func (s BoltStore) _PrefixGet(prefix []byte, resource string) (v [][]byte, err error) {
 	s.CreateBucket(resource)
 	kk, vv, err := PrefixGet(prefix, []byte(resource), s.Db)
 	if vv != nil {
@@ -75,7 +76,7 @@ func (s BoltStore) PrefixGet(prefix []byte, resource string) (v [][]byte, err er
 	return
 }
 
-func (s BoltStore) Save(key []byte, data []byte, resource string) error {
+func (s BoltStore) _Save(key []byte, data []byte, resource string) error {
 	s.CreateBucket(resource)
 	err := s.Db.Update(func(tx *bolt.Tx) error {
 		b := tx.Bucket([]byte(resource))
@@ -85,7 +86,7 @@ func (s BoltStore) Save(key []byte, data []byte, resource string) error {
 	return err
 }
 
-func (s BoltStore) Delete(key []byte, resource string) error {
+func (s BoltStore) _Delete(key []byte, resource string) error {
 	s.CreateBucket(resource)
 	err := s.Db.Update(func(tx *bolt.Tx) error {
 		b := tx.Bucket([]byte(resource))
@@ -95,7 +96,7 @@ func (s BoltStore) Delete(key []byte, resource string) error {
 	return err
 }
 
-func (s BoltStore) DeleteAll(resource string) error {
+func (s BoltStore) _DeleteAll(resource string) error {
 	s.CreateBucket(resource)
 	err := s.Db.Update(func(tx *bolt.Tx) error {
 		b := tx.Bucket([]byte(resource))
@@ -108,7 +109,7 @@ func (s BoltStore) DeleteAll(resource string) error {
 	return err
 }
 
-func (s BoltStore) GetAll(count int, skip int, resource string) (objs [][][]byte, err error) {
+func (s BoltStore) _GetAll(count int, skip int, resource string) (objs [][][]byte, err error) {
 	s.CreateBucket(resource)
 	err = s.Db.View(func(tx *bolt.Tx) error {
 		c := tx.Bucket([]byte(resource)).Cursor()
@@ -147,7 +148,7 @@ func (s BoltStore) GetAll(count int, skip int, resource string) (objs [][][]byte
 	return
 }
 
-func (s BoltStore) GetAllAfter(key []byte, count int, skip int, resource string) (objs [][][]byte, err error) {
+func (s BoltStore) _GetAllAfter(key []byte, count int, skip int, resource string) (objs [][][]byte, err error) {
 	s.CreateBucket(resource)
 	err = s.Db.View(func(tx *bolt.Tx) error {
 		c := tx.Bucket([]byte(resource)).Cursor()
@@ -183,7 +184,7 @@ func (s BoltStore) GetAllAfter(key []byte, count int, skip int, resource string)
 	return
 }
 
-func (s BoltStore) GetAllBefore(key []byte, count int, skip int, resource string) (objs [][][]byte, err error) {
+func (s BoltStore) _GetAllBefore(key []byte, count int, skip int, resource string) (objs [][][]byte, err error) {
 	s.CreateBucket(resource)
 	err = s.Db.View(func(tx *bolt.Tx) error {
 		c := tx.Bucket([]byte(resource)).Cursor()
@@ -218,7 +219,7 @@ func (s BoltStore) GetAllBefore(key []byte, count int, skip int, resource string
 	return
 }
 
-func (s BoltStore) Filter(prefix []byte, count int, skip int, resource string) (objs [][][]byte, err error) {
+func (s BoltStore) _Filter(prefix []byte, count int, skip int, resource string) (objs [][][]byte, err error) {
 	s.CreateBucket(resource)
 	b_prefix := []byte(prefix)
 	err = s.Db.View(func(tx *bolt.Tx) error {
@@ -333,11 +334,67 @@ func (s BoltStore) GetStoreObject() interface{}{
 	return s.Db
 }
 
+//New Api
+type BoltRows struct{
+	rows [][][]byte
+	i int
+	len int
+}
+func (s BoltRows) Next(dst interface{}) (bool, error) {
+	if s.i >= s.len{
+		return false, nil
+	}
+	if err := json.Unmarshal(s.rows[s.i][1], dst); err != nil{
+		return false, err
+	}
+	s.i++
+	return true, nil
+}
+
+func (s BoltRows) Close() {
+	s.rows = nil
+}
+
+func (s BoltStore) All(count int, skip int, store string) (ObjectRows, error){
+	_rows, err := s._GetAll(count, skip, store)
+	if err != nil{
+		return nil, err
+	}
+	return BoltRows{_rows, 0, len(_rows)}, nil
+}
+func (s BoltStore) AllCursor(store string) (ObjectRows, error){return nil, nil}
+
+func (s BoltStore) Since(id string, count int, skip int, store string) (ObjectRows, error) {return nil, nil} //Get all recent items from a key
+func (s BoltStore) Before(id string, count int, skip int, store string) (ObjectRows, error){return nil, nil} //Get all existing items before a key
+
+func (s BoltStore) FilterSince(id string, filter map[string]interface{}, count int, skip int, store string, opts ObjectStoreOptions) (ObjectRows, error){return nil, nil}  //Get all recent items from a key
+func (s BoltStore) FilterBefore(id string, filter map[string]interface{}, count int, skip int, store string, opts ObjectStoreOptions) (ObjectRows, error){return nil, nil} //Get all existing items before a key
+func (s BoltStore) FilterBeforeCount(id string, filter map[string]interface{}, count int, skip int, store string, opts ObjectStoreOptions) (int64, error){return 0, nil} //Get all existing items before a key
+
+func (s BoltStore) Get(key string, store string, dst interface{}) error{return nil}
+func (s BoltStore) Save(store string, src interface{}) (string, error){return "", nil}
+func (s BoltStore) Update(key string, store string, src interface{}) error{return nil}
+func (s BoltStore) Replace(key string, store string, src interface{}) error{return nil}
+func (s BoltStore) Delete(key string, store string) error{return nil}
+
+//Filter
+func (s BoltStore) FilterUpdate(filter map[string]interface{}, src interface{}, store string, opts ObjectStoreOptions) error {return nil}
+func (s BoltStore) FilterReplace(filter map[string]interface{}, src interface{}, store string,  opts ObjectStoreOptions) error{return nil}
+func (s BoltStore) FilterGet(filter map[string]interface{}, store string, dst interface{}, opts ObjectStoreOptions) error {return nil}
+func (s BoltStore) FilterGetAll(filter map[string]interface{}, count int, skip int, store string, opts ObjectStoreOptions) (ObjectRows, error){return nil, nil}
+func (s BoltStore) FilterDelete(filter map[string]interface{}, store string, opts ObjectStoreOptions) error{return nil}
+func (s BoltStore) FilterCount(filter map[string]interface{}, store string, opts ObjectStoreOptions) (int64, error){return 0, nil}
+
+//Misc gets
+func (s BoltStore) GetByField(name, val, store string, dst interface{}) error{return nil}
+func (s BoltStore) GetByFieldsByField(name, val, store string, fields []string, dst interface{}) (err error){return nil}
+func (s BoltStore) Close(){}
 func NewBoltObjectStore(db *bolt.DB, database string) BoltObjectStore {
 	e := BoltObjectStore{db}
 	//	e.CreateBucket(bucket)
 	return e
 }
+
 
 
 type BoltObjectStore struct{
