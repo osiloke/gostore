@@ -52,38 +52,61 @@ func (s RethinkStore) GetStore() interface{} {
 	return s.Session
 }
 
-func hasIndex(name string, indexes []string) bool{
+func hasIndex(name string, indexes []interface{}) bool{
 	for _, v := range indexes{
-		if v == name{
+		if v.(string) == name{
 			return true
 		}
 	}
 	return false
 }
+//TODO: fix index creation, indexes are not created properly
 func (rs RethinkStore) CreateTable(store string, schema interface{}) (err error) {
-	var existingIndexes []string
+	logger.Info("creating table "+store)
+	var res []interface{}
 	_, err = r.DB(rs.Database).TableCreate(store).RunWrite(rs.Session)
-	result, _ := r.DB(rs.Database).Table(store).IndexList().Run(rs.Session)
-	result.One(&existingIndexes)
-	logger.Debug("existing indexes",  "i",existingIndexes)
+	if err != nil{
+		logger.Warn("unable to create table ", "table", store)
+		return err
+	}
+	result, err := r.DB(rs.Database).Table(store).IndexList().Run(rs.Session)
+	if err != nil{
+		panic(err)
+	}
+	if result.Err() != nil{
+		panic(err)
+	}
+	result.All(&res)
+	logger.Debug(store+" indexList", res)
 	//also create indexes
 	if schema != nil {
 		s := schema.(map[string]interface{})
 		if indexes, ok := s["index"].(map[string]interface{}); ok {
-			for name, index_vals := range indexes {
-				if !hasIndex(name, existingIndexes){
-					if _, ok := index_vals.([]string); ok {
-						//				if _, err = r.DB(rs.Database).Table(store).IndexCreate(name).RunWrite(rs.Session); err != nil{
-						//					return
-						//				}
+			for name, _vals := range indexes {
+				if !hasIndex(name, res){
+					logger.Info("creating index", "name", name, "val", _vals)
+					if vals, ok := _vals.([]interface{}); ok {
+						logger.Info("creating compound index", "name", name, "vals", vals)
+						if _, err = r.DB(rs.Database).Table(store).IndexCreateFunc(name, func(row Term) interface{} {
+								index_fields := []interface{}
+								for _, v := range vals{
+									index_fields = append(index_fields, row.Field(string(v)))
+								}
+    						return index_fields
+						}).RunWrite(rs.Session); err != nil{
+							return
+						}
 					} else {
-						if _, err = r.DB(rs.Database).Table(store).IndexCreate(name).Run(rs.Session); err != nil {
-							// logger.Warn("cannot create index [" + name + "] in " + store)
-							// logger.Warn("cannot create index")
-							println(err.Error())
+						logger.Info("creating index", "name", name)
+						if err = r.DB(rs.Database).Table(store).IndexCreate(name).Exec(rs.Session); err != nil {
+							logger.Warn("cannot create index [" + name + "] in " + store)
+							logger.Warn("cannot create index")
+							// println(err.Error())
 
 						} else {
-							logger.Info("created index [" + name + "] in " + store)
+							if err = r.DB(rs.Database).Table(store).IndexWait(name).Exec(rs.Session); err == nil{
+								logger.Info("created index [" + name + "] in " + store)
+							}
 						}
 					}
 				}
