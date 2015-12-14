@@ -64,11 +64,11 @@ func hasIndex(name string, indexes []interface{}) bool{
 func (rs RethinkStore) CreateTable(store string, schema interface{}) (err error) {
 	logger.Info("creating table "+store)
 	var res []interface{}
-	_, err = r.DB(rs.Database).TableCreate(store).RunWrite(rs.Session)
-	if err != nil{
-		logger.Warn("unable to create table ", "table", store)
-		return err
-	}
+	_ = r.DB(rs.Database).TableCreate(store).Exec(rs.Session)
+	// if err != nil{
+	// 	// logger.Warn("unable to create table ", "table", store)
+	//
+	// }
 	result, err := r.DB(rs.Database).Table(store).IndexList().Run(rs.Session)
 	if err != nil{
 		panic(err)
@@ -87,10 +87,10 @@ func (rs RethinkStore) CreateTable(store string, schema interface{}) (err error)
 					logger.Info("creating index", "name", name, "val", _vals)
 					if vals, ok := _vals.([]interface{}); ok {
 						logger.Info("creating compound index", "name", name, "vals", vals)
-						if _, err = r.DB(rs.Database).Table(store).IndexCreateFunc(name, func(row Term) interface{} {
-								index_fields := []interface{}
+						if _, err = r.DB(rs.Database).Table(store).IndexCreateFunc(name, func(row r.Term) interface{} {
+								index_fields := []interface{}{}
 								for _, v := range vals{
-									index_fields = append(index_fields, row.Field(string(v)))
+									index_fields = append(index_fields, row.Field(v.(string)))
 								}
     						return index_fields
 						}).RunWrite(rs.Session); err != nil{
@@ -99,9 +99,9 @@ func (rs RethinkStore) CreateTable(store string, schema interface{}) (err error)
 					} else {
 						logger.Info("creating index", "name", name)
 						if err = r.DB(rs.Database).Table(store).IndexCreate(name).Exec(rs.Session); err != nil {
-							logger.Warn("cannot create index [" + name + "] in " + store)
-							logger.Warn("cannot create index")
-							// println(err.Error())
+							// logger.Warn("cannot create index [" + name + "] in " + store)
+							// logger.Warn("cannot create index")
+							println(err.Error())
 
 						} else {
 							if err = r.DB(rs.Database).Table(store).IndexWait(name).Exec(rs.Session); err == nil{
