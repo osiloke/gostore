@@ -166,29 +166,19 @@ func (s RethinkStore) ParseFilterArgs(filter map[string]interface{}, indexes []s
 	var (
 		t r.Term = r.And(1)
 	)
-
+	logger.Debug("filterArgs", "filter", filter, "indexes", indexes, "opts", opts)
 	//TODO: Optimize this by passing indexes as well as field types
 	for k, v := range filter {
 		val := v.(string)
-		first := string([]rune(val)[0])
-		// if strings.Contains("/>!<~", first) {
-		if op, ok := filterOps[first]; ok {
-			//				var rv interface{}
-			tv := string([]rune(val)[1:])
-			//				if _rv, err := govalidator.ToInt(tv); err == nil{
-			//					rv = _rv
-			//				}else{
-			//					rv = tv
-			//				}
-			t = t.And(op(r.Row.Field(k), tv))
-		} else {
-			//			var rv interface{}
-			//			if _rv, err := govalidator.ToInt(v.(string)); err == nil{
-			//				rv = _rv
-			//			}else{
-			//				rv = v
-			//			}
-			t = t.And(r.Row.Field(k).Eq(v))
+		val_rune := []rune(val)
+		if len(val_rune) > 0 {
+			first := string(val_rune[0])
+			if op, ok := filterOps[first]; ok {
+				tv := string([]rune(val)[1:])
+				t = t.And(op(r.Row.Field(k), tv))
+			} else {
+				t = t.And(r.Row.Field(k).Eq(v))
+			}
 		}
 	}
 	// logger.Debug(t.String())
