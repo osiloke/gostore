@@ -4,12 +4,11 @@ package gostore
 import (
 	"bytes"
 	"github.com/boltdb/bolt"
+	"github.com/dustin/gojson"
 	"github.com/fatih/structs"
 	"log"
 	"time"
-	"github.com/dustin/gojson"
 )
-
 
 type BoltStore struct {
 	Bucket []byte
@@ -330,21 +329,22 @@ func (s BoltStore) Stats(bucket string) (data map[string]interface{}, err error)
 	return
 }
 
-func (s BoltStore) GetStoreObject() interface{}{
+func (s BoltStore) GetStoreObject() interface{} {
 	return s.Db
 }
 
 //New Api
-type BoltRows struct{
+type BoltRows struct {
 	rows [][][]byte
-	i int
-	len int
+	i    int
+	len  int
 }
+
 func (s BoltRows) Next(dst interface{}) (bool, error) {
-	if s.i >= s.len{
+	if s.i >= s.len {
 		return false, nil
 	}
-	if err := json.Unmarshal(s.rows[s.i][1], dst); err != nil{
+	if err := json.Unmarshal(s.rows[s.i][1], dst); err != nil {
 		return false, err
 	}
 	s.i++
@@ -355,48 +355,87 @@ func (s BoltRows) Close() {
 	s.rows = nil
 }
 
-func (s BoltStore) All(count int, skip int, store string) (ObjectRows, error){
+func (s BoltStore) All(count int, skip int, store string) (ObjectRows, error) {
 	_rows, err := s._GetAll(count, skip, store)
-	if err != nil{
+	if err != nil {
 		return nil, err
 	}
 	return BoltRows{_rows, 0, len(_rows)}, nil
 }
-func (s BoltStore) AllCursor(store string) (ObjectRows, error){return nil, nil}
+func (s BoltStore) AllCursor(store string) (ObjectRows, error) { return nil, nil }
 
-func (s BoltStore) Since(id string, count int, skip int, store string) (ObjectRows, error) {return nil, nil} //Get all recent items from a key
-func (s BoltStore) Before(id string, count int, skip int, store string) (ObjectRows, error){return nil, nil} //Get all existing items before a key
+func (s BoltStore) Since(id string, count int, skip int, store string) (ObjectRows, error) {
+	return nil, nil
+} //Get all recent items from a key
+func (s BoltStore) Before(id string, count int, skip int, store string) (ObjectRows, error) {
+	return nil, nil
+} //Get all existing items before a key
 
-func (s BoltStore) FilterSince(id string, filter map[string]interface{}, count int, skip int, store string, opts ObjectStoreOptions) (ObjectRows, error){return nil, nil}  //Get all recent items from a key
-func (s BoltStore) FilterBefore(id string, filter map[string]interface{}, count int, skip int, store string, opts ObjectStoreOptions) (ObjectRows, error){return nil, nil} //Get all existing items before a key
-func (s BoltStore) FilterBeforeCount(id string, filter map[string]interface{}, count int, skip int, store string, opts ObjectStoreOptions) (int64, error){return 0, nil} //Get all existing items before a key
+func (s BoltStore) FilterSince(id string, filter map[string]interface{}, count int, skip int, store string, opts ObjectStoreOptions) (ObjectRows, error) {
+	return nil, nil
+} //Get all recent items from a key
+func (s BoltStore) FilterBefore(id string, filter map[string]interface{}, count int, skip int, store string, opts ObjectStoreOptions) (ObjectRows, error) {
+	return nil, nil
+} //Get all existing items before a key
+func (s BoltStore) FilterBeforeCount(id string, filter map[string]interface{}, count int, skip int, store string, opts ObjectStoreOptions) (int64, error) {
+	return 0, nil
+} //Get all existing items before a key
 
-func (s BoltStore) Get(key string, store string, dst interface{}) error{return nil}
-func (s BoltStore) Save(store string, src interface{}) (string, error){return "", nil}
-func (s BoltStore) Update(key string, store string, src interface{}) error{return nil}
-func (s BoltStore) Replace(key string, store string, src interface{}) error{return nil}
-func (s BoltStore) Delete(key string, store string) error{return nil}
+func (s BoltStore) Get(key string, store string, dst interface{}) error { return nil }
+func (s BoltStore) Save(store string, src interface{}) (string, error) {
+	var key string
+	if _v, ok := src.(map[string]interface{}); ok {
+		if k, ok := _v["id"].(string); ok {
+			key = k
+		}
+	} else {
+		key = NewObjectId().String()
+	}
+	data, err := json.Marshal(src)
+	if err != nil {
+		return "", err
+	}
+	if err := s._Save([]byte(key), data, store); err != nil {
+		return "", err
+	}
+	return key, nil
+}
+func (s BoltStore) Update(key string, store string, src interface{}) error  { return nil }
+func (s BoltStore) Replace(key string, store string, src interface{}) error { return nil }
+func (s BoltStore) Delete(key string, store string) error                   { return nil }
 
 //Filter
-func (s BoltStore) FilterUpdate(filter map[string]interface{}, src interface{}, store string, opts ObjectStoreOptions) error {return nil}
-func (s BoltStore) FilterReplace(filter map[string]interface{}, src interface{}, store string,  opts ObjectStoreOptions) error{return nil}
-func (s BoltStore) FilterGet(filter map[string]interface{}, store string, dst interface{}, opts ObjectStoreOptions) error {return nil}
-func (s BoltStore) FilterGetAll(filter map[string]interface{}, count int, skip int, store string, opts ObjectStoreOptions) (ObjectRows, error){return nil, nil}
-func (s BoltStore) FilterDelete(filter map[string]interface{}, store string, opts ObjectStoreOptions) error{return nil}
-func (s BoltStore) FilterCount(filter map[string]interface{}, store string, opts ObjectStoreOptions) (int64, error){return 0, nil}
+func (s BoltStore) FilterUpdate(filter map[string]interface{}, src interface{}, store string, opts ObjectStoreOptions) error {
+	return nil
+}
+func (s BoltStore) FilterReplace(filter map[string]interface{}, src interface{}, store string, opts ObjectStoreOptions) error {
+	return nil
+}
+func (s BoltStore) FilterGet(filter map[string]interface{}, store string, dst interface{}, opts ObjectStoreOptions) error {
+	return nil
+}
+func (s BoltStore) FilterGetAll(filter map[string]interface{}, count int, skip int, store string, opts ObjectStoreOptions) (ObjectRows, error) {
+	return nil, nil
+}
+func (s BoltStore) FilterDelete(filter map[string]interface{}, store string, opts ObjectStoreOptions) error {
+	return nil
+}
+func (s BoltStore) FilterCount(filter map[string]interface{}, store string, opts ObjectStoreOptions) (int64, error) {
+	return 0, nil
+}
 
 //Misc gets
-func (s BoltStore) GetByField(name, val, store string, dst interface{}) error{return nil}
-func (s BoltStore) GetByFieldsByField(name, val, store string, fields []string, dst interface{}) (err error){return nil}
-func (s BoltStore) Close(){}
+func (s BoltStore) GetByField(name, val, store string, dst interface{}) error { return nil }
+func (s BoltStore) GetByFieldsByField(name, val, store string, fields []string, dst interface{}) (err error) {
+	return nil
+}
+func (s BoltStore) Close() {}
 func NewBoltObjectStore(db *bolt.DB, database string) BoltObjectStore {
 	e := BoltObjectStore{db}
 	//	e.CreateBucket(bucket)
 	return e
 }
 
-
-
-type BoltObjectStore struct{
-	Db     *bolt.DB
+type BoltObjectStore struct {
+	Db *bolt.DB
 }

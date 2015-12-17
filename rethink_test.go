@@ -1,10 +1,11 @@
 package gostore
-import( 
+
+import (
 	"os"
-	r "github.com/dancannon/gorethink"
+	// r "github.com/dancannon/gorethink"
 )
 
-var session *gorethink.Session
+// var session *gorethink.Session
 var url, url1, url2, url3, db, authKey string
 
 func init() {

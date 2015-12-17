@@ -13,5 +13,6 @@ func timeTrack(start time.Time, name string) {
 
 var ErrNotFound = errors.New("Does not exist")
 var ErrDuplicatePk = errors.New("Duplicate primary key exists")
+var ErrNotImplemented = errors.New("not implemented yet")
 
 type Params map[string]interface{}
