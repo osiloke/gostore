@@ -103,6 +103,7 @@ func (s ScribbleStore) Save(store string, src interface{}) (string, error) {
 	} else {
 		key = NewObjectId().String()
 	}
+	log.Debug("saving " + key + " to " + store)
 	if err := s.db.Write(store, key, src); err != nil {
 		return "", err
 	}
