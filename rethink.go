@@ -28,7 +28,7 @@ type RethinkRows struct {
 	cursor *r.Cursor
 }
 
-func NewRethinkRows(cursor *r.Cursor) RethinkRows{
+func NewRethinkRows(cursor *r.Cursor) RethinkRows {
 	return RethinkRows{cursor}
 }
 
@@ -52,17 +52,18 @@ func (s RethinkStore) GetStore() interface{} {
 	return s.Session
 }
 
-func hasIndex(name string, indexes []interface{}) bool{
-	for _, v := range indexes{
-		if v.(string) == name{
+func hasIndex(name string, indexes []interface{}) bool {
+	for _, v := range indexes {
+		if v.(string) == name {
 			return true
 		}
 	}
 	return false
 }
+
 //TODO: fix index creation, indexes are not created properly
 func (rs RethinkStore) CreateTable(store string, schema interface{}) (err error) {
-	logger.Info("creating table "+store)
+	logger.Info("creating table " + store)
 	var res []interface{}
 	_ = r.DB(rs.Database).TableCreate(store).Exec(rs.Session)
 	// if err != nil{
@@ -70,10 +71,10 @@ func (rs RethinkStore) CreateTable(store string, schema interface{}) (err error)
 	//
 	// }
 	result, err := r.DB(rs.Database).Table(store).IndexList().Run(rs.Session)
-	if err != nil{
+	if err != nil {
 		panic(err)
 	}
-	if result.Err() != nil{
+	if result.Err() != nil {
 		panic(err)
 	}
 	result.All(&res)
@@ -83,17 +84,17 @@ func (rs RethinkStore) CreateTable(store string, schema interface{}) (err error)
 		s := schema.(map[string]interface{})
 		if indexes, ok := s["index"].(map[string]interface{}); ok {
 			for name, _vals := range indexes {
-				if !hasIndex(name, res){
+				if !hasIndex(name, res) {
 					logger.Info("creating index", "name", name, "val", _vals)
 					if vals, ok := _vals.([]interface{}); ok {
 						logger.Info("creating compound index", "name", name, "vals", vals)
 						if _, err = r.DB(rs.Database).Table(store).IndexCreateFunc(name, func(row r.Term) interface{} {
-								index_fields := []interface{}{}
-								for _, v := range vals{
-									index_fields = append(index_fields, row.Field(v.(string)))
-								}
-    						return index_fields
-						}).RunWrite(rs.Session); err != nil{
+							index_fields := []interface{}{}
+							for _, v := range vals {
+								index_fields = append(index_fields, row.Field(v.(string)))
+							}
+							return index_fields
+						}).RunWrite(rs.Session); err != nil {
 							return
 						}
 					} else {
@@ -104,7 +105,7 @@ func (rs RethinkStore) CreateTable(store string, schema interface{}) (err error)
 							println(err.Error())
 
 						} else {
-							if err = r.DB(rs.Database).Table(store).IndexWait(name).Exec(rs.Session); err == nil{
+							if err = r.DB(rs.Database).Table(store).IndexWait(name).Exec(rs.Session); err == nil {
 								logger.Info("created index [" + name + "] in " + store)
 							}
 						}
@@ -119,7 +120,7 @@ func (rs RethinkStore) CreateTable(store string, schema interface{}) (err error)
 
 type TermOperators map[string]func(args ...interface{}) interface{}
 
-func parseFilter(args string) (dtarg interface{}){
+func parseFilter(args string) (dtarg interface{}) {
 	//this also handles args
 	vals := strings.Split(args, "|")
 	if len(vals) > 1 {
@@ -142,6 +143,7 @@ func parseFilter(args string) (dtarg interface{}){
 	}
 	return vals[0]
 }
+
 var filterOps TermOperators = TermOperators{
 	"~": func(args ...interface{}) interface{} {
 		vals := strings.Split(args[1].(string), "|")
@@ -243,8 +245,8 @@ func (s RethinkStore) Get(id, store string, dst interface{}) (err error) {
 		return result.Err()
 	}
 
-	logger.Debug("Get", "query", rootTerm.String())
-	if result.IsNil(){
+	logger.Debug("Get", "key", id, "query", rootTerm.String())
+	if result.IsNil() {
 		return ErrNotFound
 	}
 	if err = result.One(dst); err == r.ErrEmptyResult {
@@ -320,12 +322,12 @@ func (s RethinkStore) getRootTerm(store string, filter map[string]interface{}, o
 	var indexName string
 	var indexVal string
 	for name, _ := range indexes {
-		logger.Debug("checking index "+name)
+		logger.Debug("checking index " + name)
 		if val, ok := filter[name].(string); ok {
 			hasIndex = true
 			indexVal = val
 			indexName = name
-			ix_id_name := name+"_id"
+			ix_id_name := name + "_id"
 			if _, ok := indexes[ix_id_name]; ok {
 				indexName = ix_id_name
 				hasMultiIndex = true
@@ -337,15 +339,15 @@ func (s RethinkStore) getRootTerm(store string, filter map[string]interface{}, o
 	if !hasIndex {
 		rootTerm = rootTerm.OrderBy(
 			r.OrderByOpts{Index: r.Desc("id")})
-	}else{
-			if hasMultiIndex{
-				rootTerm = rootTerm.Between(
-					[]interface{}{indexVal, r.MinVal},
-					[]interface{}{indexVal, r.MaxVal},
-					r.BetweenOpts{Index: indexName, RightBound: "closed"}).OrderBy(r.OrderByOpts{Index: r.Desc(indexName)})
-		 }else{
-			 rootTerm = rootTerm.GetAllByIndex(indexName, indexVal)
-		 }
+	} else {
+		if hasMultiIndex {
+			rootTerm = rootTerm.Between(
+				[]interface{}{indexVal, r.MinVal},
+				[]interface{}{indexVal, r.MaxVal},
+				r.BetweenOpts{Index: indexName, RightBound: "closed"}).OrderBy(r.OrderByOpts{Index: r.Desc(indexName)})
+		} else {
+			rootTerm = rootTerm.GetAllByIndex(indexName, indexVal)
+		}
 	}
 	rootTerm = rootTerm.Filter(s.ParseFilterArgs(filter, nil, opts))
 	return
@@ -431,7 +433,7 @@ func (s RethinkStore) FilterGet(filter map[string]interface{}, store string, dst
 	}
 	defer result.Close()
 
-	if result.IsNil(){
+	if result.IsNil() {
 		return ErrNotFound
 	}
 	if err = result.One(dst); err == r.ErrEmptyResult {
@@ -445,7 +447,7 @@ func (s RethinkStore) FilterGetAll(filter map[string]interface{}, count int, ski
 	_ = "breakpoint"
 	_ = "FilterGetAll"
 	var rootTerm = s.getRootTerm(store, filter, opts)
-	if count > 0{
+	if count > 0 {
 		rootTerm = rootTerm.Limit(count)
 	}
 	result, err := rootTerm.Skip(skip).Run(s.Session)
@@ -454,7 +456,7 @@ func (s RethinkStore) FilterGetAll(filter map[string]interface{}, count int, ski
 		return
 	}
 	logger.Debug("FilterGetAll", "query", rootTerm.String(), "err", result.Err())
-	if result.IsNil(){
+	if result.IsNil() {
 		return nil, ErrNotFound
 	}
 	rrows = RethinkRows{result}
