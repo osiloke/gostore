@@ -284,6 +284,7 @@ func (s RethinkStore) Replace(id string, store string, src interface{}) (err err
 
 func (s RethinkStore) Delete(id string, store string) (err error) {
 	_, err = r.DB(s.Database).Table(store).Get(id).Delete(r.DeleteOpts{Durability: "hard"}).RunWrite(s.Session)
+	logger.Debug("deleting " + id + " from " + store)
 	return
 }
 
