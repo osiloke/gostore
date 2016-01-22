@@ -21,6 +21,28 @@ func NewBoltStore(bucket string, db *bolt.DB) BoltStore {
 	return e
 }
 
+func NewBoltObjectStore(path string) (s BoltStore, err error) {
+	db, err := bolt.Open(path, 0600, nil)
+	if err != nil {
+		return
+	}
+	s = BoltStore{[]byte("_default"), db}
+	//	e.CreateBucket(bucket)
+	return
+}
+
+func (s BoltStore) CreateDatabase() error {
+	return nil
+}
+
+func (s BoltStore) CreateTable(table string, sample interface{}) error {
+	return nil
+}
+
+func (s BoltStore) GetStore() interface{} {
+	return s.Db
+}
+
 func (s BoltStore) CreateBucket(bucket string) {
 	s.Db.Update(func(tx *bolt.Tx) error {
 		_, err := tx.CreateBucketIfNotExists([]byte(bucket))
@@ -329,10 +351,6 @@ func (s BoltStore) Stats(bucket string) (data map[string]interface{}, err error)
 	return
 }
 
-func (s BoltStore) GetStoreObject() interface{} {
-	return s.Db
-}
-
 //New Api
 type BoltRows struct {
 	rows [][][]byte
@@ -365,10 +383,18 @@ func (s BoltStore) All(count int, skip int, store string) (ObjectRows, error) {
 func (s BoltStore) AllCursor(store string) (ObjectRows, error) { return nil, nil }
 
 func (s BoltStore) Since(id string, count int, skip int, store string) (ObjectRows, error) {
-	return nil, nil
+	_rows, err := s._GetAllAfter([]byte(id), count, skip, store)
+	if err != nil {
+		return nil, err
+	}
+	return BoltRows{_rows, 0, len(_rows)}, nil
 } //Get all recent items from a key
 func (s BoltStore) Before(id string, count int, skip int, store string) (ObjectRows, error) {
-	return nil, nil
+	_rows, err := s._GetAllBefore([]byte(id), count, skip, store)
+	if err != nil {
+		return nil, err
+	}
+	return BoltRows{_rows, 0, len(_rows)}, nil
 } //Get all existing items before a key
 
 func (s BoltStore) FilterSince(id string, filter map[string]interface{}, count int, skip int, store string, opts ObjectStoreOptions) (ObjectRows, error) {
@@ -430,12 +456,3 @@ func (s BoltStore) GetByFieldsByField(name, val, store string, fields []string, 
 	return nil
 }
 func (s BoltStore) Close() {}
-func NewBoltObjectStore(db *bolt.DB, database string) BoltObjectStore {
-	e := BoltObjectStore{db}
-	//	e.CreateBucket(bucket)
-	return e
-}
-
-type BoltObjectStore struct {
-	Db *bolt.DB
-}
