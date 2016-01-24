@@ -135,14 +135,50 @@ func (s BoltStore) _DeleteAll(resource string) error {
 	return err
 }
 
+//New Api
+type BoltRows struct {
+	rows   [][][]byte
+	i      int
+	length int
+}
+
+func (s BoltRows) Next(dst interface{}) (bool, error) {
+	if s.i >= s.length {
+		logger.Info("EOF", "i", s.i, "length", s.length)
+		return false, ErrEOF
+	}
+	s.i = s.i + 1
+	current := s.rows[s.i]
+	logger.Info("next", "i", s.i, "length", s.length, "current", current)
+	if err := json.Unmarshal(current[1], dst); err != nil {
+		logger.Warn(err.Error())
+		return false, err
+	}
+	return true, nil
+}
+
+func (s BoltRows) Close() {
+	s.rows = nil
+}
+
+func (s BoltStore) All(count int, skip int, store string) (ObjectRows, error) {
+	_rows, err := s._GetAll(count, skip, store)
+	// logger.Info("retrieved rows", "rows", _rows)
+	if err != nil {
+		return nil, err
+	}
+	return BoltRows{_rows, 0, len(_rows)}, nil
+}
+
 func (s BoltStore) _GetAll(count int, skip int, resource string) (objs [][][]byte, err error) {
 	s.CreateBucket(resource)
 	err = s.Db.View(func(tx *bolt.Tx) error {
+		logger.Info("get all", "count", count, "skip", skip, "Store", resource)
 		c := tx.Bucket([]byte(resource)).Cursor()
+		var skip_lim int = 1
 		//Skip a certain amount
 		if skip > 0 {
 			//make sure we hit the database once
-			var skip_lim int = 1
 			var target_count int = skip - 1
 			for k, _ := c.Last(); k != nil; k, _ = c.Prev() {
 				if skip_lim >= target_count {
@@ -155,19 +191,21 @@ func (s BoltStore) _GetAll(count int, skip int, resource string) (objs [][][]byt
 			k, v := c.Last()
 			if k != nil {
 				objs = append(objs, [][]byte{k, v})
+				skip_lim++
 			} else {
 				return err
 			}
 		}
 
 		//Get next items after skipping or getting first item
-		var lim int = 2
 		for k, v := c.Prev(); k != nil; k, v = c.Prev() {
+			logger.Info("retrieved", "key", string(k), "val", string(v))
 			objs = append(objs, [][]byte{k, v})
-			if lim == count {
+			if skip_lim == count {
+				logger.Info("count reached", "count", count)
 				break
 			}
-			lim++
+			skip_lim++
 		}
 		return err
 	})
@@ -356,36 +394,6 @@ func (s BoltStore) Stats(bucket string) (data map[string]interface{}, err error)
 	return
 }
 
-//New Api
-type BoltRows struct {
-	rows   [][][]byte
-	i      int
-	length int
-}
-
-func (s BoltRows) Next(dst interface{}) (bool, error) {
-	if s.i >= s.length {
-		return false, nil
-	}
-	if err := json.Unmarshal(s.rows[s.i][1], dst); err != nil {
-		return false, err
-	}
-	s.i++
-	return true, nil
-}
-
-func (s BoltRows) Close() {
-	s.rows = nil
-}
-
-func (s BoltStore) All(count int, skip int, store string) (ObjectRows, error) {
-	_rows, err := s._GetAll(count, skip, store)
-	// logger.Info("retrieved rows", "rows", _rows)
-	if err != nil {
-		return nil, err
-	}
-	return BoltRows{_rows, 0, len(_rows)}, nil
-}
 func (s BoltStore) AllCursor(store string) (ObjectRows, error) { return nil, nil }
 
 func (s BoltStore) Since(id string, count int, skip int, store string) (ObjectRows, error) {
