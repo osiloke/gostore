@@ -3,6 +3,7 @@ package gostore
 import (
 	"errors"
 	"log"
+	"reflect"
 	"time"
 )
 
@@ -17,3 +18,7 @@ var ErrDuplicatePk = errors.New("Duplicate primary key exists")
 var ErrNotImplemented = errors.New("not implemented yet")
 
 type Params map[string]interface{}
+
+func ObjectType(i interface{}) reflect.Type {
+	return reflect.TypeOf(i)
+}

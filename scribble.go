@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"github.com/mgutz/logxi/v1"
 	"github.com/nanobox-io/golang-scribble"
+	"os"
 )
 
 type ScribbleStore struct {
@@ -63,6 +64,9 @@ func (s ScribbleStore) Stats(store string) (map[string]interface{}, error) {
 func (s ScribbleStore) All(count int, skip int, store string) (ObjectRows, error) {
 	_rows, err := s.db.ReadAll(store)
 	if err != nil {
+		if _, ok := err.(*os.PathError); ok {
+			return nil, ErrNotFound
+		}
 		return nil, err
 	}
 	return ScribbleRows{_rows, 0, len(_rows)}, nil
@@ -91,7 +95,12 @@ func (s ScribbleStore) FilterBeforeCount(id string, filter map[string]interface{
 }
 
 func (s ScribbleStore) Get(key string, store string, dst interface{}) error {
-	return s.db.Read(store, key, &dst)
+	err := s.db.Read(store, key, &dst)
+	if _, ok := err.(*os.PathError); ok {
+		return ErrNotFound
+	} else {
+		return err
+	}
 }
 
 func (s ScribbleStore) Save(store string, src interface{}) (string, error) {
