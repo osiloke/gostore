@@ -6,10 +6,14 @@ import (
 	"github.com/boltdb/bolt"
 	"github.com/dustin/gojson"
 	"github.com/fatih/structs"
+	// "github.com/ventu-io/go-shortid"
 	"log"
 	"time"
 )
 
+type HasID interface {
+	GetId() string
+}
 type BoltStore struct {
 	Bucket []byte
 	Db     *bolt.DB
@@ -79,11 +83,12 @@ func PrefixGet(prefix []byte, bucket []byte, db *bolt.DB) (k, v []byte, err erro
 	return
 }
 
-func (s BoltStore) _Get(key []byte, resource string) (v [][]byte, err error) {
+func (s BoltStore) _Get(key, resource string) (v [][]byte, err error) {
 	s.CreateBucket(resource)
-	vv, err := Get(key, []byte(resource), s.Db)
+	_key := []byte(key)
+	vv, err := Get(_key, []byte(resource), s.Db)
 	if vv != nil {
-		v = [][]byte{key, vv}
+		v = [][]byte{_key, vv}
 	}
 	return
 }
@@ -353,13 +358,13 @@ func (s BoltStore) Stats(bucket string) (data map[string]interface{}, err error)
 
 //New Api
 type BoltRows struct {
-	rows [][][]byte
-	i    int
-	len  int
+	rows   [][][]byte
+	i      int
+	length int
 }
 
 func (s BoltRows) Next(dst interface{}) (bool, error) {
-	if s.i >= s.len {
+	if s.i >= s.length {
 		return false, nil
 	}
 	if err := json.Unmarshal(s.rows[s.i][1], dst); err != nil {
@@ -375,6 +380,7 @@ func (s BoltRows) Close() {
 
 func (s BoltStore) All(count int, skip int, store string) (ObjectRows, error) {
 	_rows, err := s._GetAll(count, skip, store)
+	// logger.Info("retrieved rows", "rows", _rows)
 	if err != nil {
 		return nil, err
 	}
@@ -407,14 +413,33 @@ func (s BoltStore) FilterBeforeCount(id string, filter map[string]interface{}, c
 	return 0, nil
 } //Get all existing items before a key
 
-func (s BoltStore) Get(key string, store string, dst interface{}) error { return nil }
+func (s BoltStore) Get(key string, store string, dst interface{}) error {
+	data, err := s._Get(key, store)
+	if err != nil {
+		return err
+	}
+	if err := json.Unmarshal(data[1], dst); err != nil {
+		return err
+	}
+	return nil
+}
 func (s BoltStore) Save(store string, src interface{}) (string, error) {
 	var key string
 	if _v, ok := src.(map[string]interface{}); ok {
 		if k, ok := _v["id"].(string); ok {
 			key = k
+		} else {
+			key = NewObjectId().String()
 		}
+	} else if _v, ok := src.(HasID); ok {
+		key = _v.GetId()
 	} else {
+		// if _key, err := shortid.Generate(); err == nil {
+		// 	key = _key
+		// } else {
+		// 	logger.Error(ErrKeyNotValid.Error(), "err", err)
+		// 	return ErrKeyNotValid
+		// }
 		key = NewObjectId().String()
 	}
 	data, err := json.Marshal(src)
@@ -447,7 +472,13 @@ func (s BoltStore) FilterDelete(filter map[string]interface{}, store string, opt
 	return nil
 }
 func (s BoltStore) FilterCount(filter map[string]interface{}, store string, opts ObjectStoreOptions) (int64, error) {
-	return 0, nil
+	// if data, err := s.Stats(store); err != nil {
+	// 	return 0, err
+	// } else {
+	// 	logger.Info("FilterCount", "data", data)
+	// 	return data["count"].(int64), nil
+	// }
+	return 0, ErrNotImplemented
 }
 
 //Misc gets

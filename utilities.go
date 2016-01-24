@@ -11,6 +11,7 @@ func timeTrack(start time.Time, name string) {
 	log.Printf("%s took %d", name, elapsed)
 }
 
+var ErrKeyNotValid = errors.New("Record key was not generated")
 var ErrNotFound = errors.New("Does not exist")
 var ErrDuplicatePk = errors.New("Duplicate primary key exists")
 var ErrNotImplemented = errors.New("not implemented yet")
