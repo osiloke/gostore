@@ -34,6 +34,10 @@ type PostgresRows struct {
 	cursor *sql.Rows
 }
 
+func (s PostgresRows) LastError() error {
+	return nil
+}
+
 func (s PostgresRows) Next(dst interface{}) (bool, error) {
 	if ok := s.cursor.Next(); ok {
 		var data []byte

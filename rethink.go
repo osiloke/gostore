@@ -28,6 +28,9 @@ type RethinkRows struct {
 	cursor *r.Cursor
 }
 
+func (s RethinkRows) LastError() error {
+	return nil
+}
 func NewRethinkRows(cursor *r.Cursor) RethinkRows {
 	return RethinkRows{cursor}
 }

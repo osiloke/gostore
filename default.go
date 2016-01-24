@@ -63,7 +63,7 @@ type ObjectStore interface {
 
 	//Filter
 	FilterUpdate(filter map[string]interface{}, src interface{}, store string, opts ObjectStoreOptions) error
-	FilterReplace(filter map[string]interface{}, src interface{}, store string,  opts ObjectStoreOptions) error
+	FilterReplace(filter map[string]interface{}, src interface{}, store string, opts ObjectStoreOptions) error
 	FilterGet(filter map[string]interface{}, store string, dst interface{}, opts ObjectStoreOptions) error
 	FilterGetAll(filter map[string]interface{}, count int, skip int, store string, opts ObjectStoreOptions) (ObjectRows, error)
 	FilterDelete(filter map[string]interface{}, store string, opts ObjectStoreOptions) error
@@ -79,6 +79,7 @@ type ObjectStore interface {
 type ObjectRows interface {
 	Next(interface{}) (bool, error)
 	Close()
+	LastError() error
 }
 
 type StoreOptions map[string]interface{}

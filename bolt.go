@@ -8,6 +8,7 @@ import (
 	"github.com/fatih/structs"
 	// "github.com/ventu-io/go-shortid"
 	"log"
+	"sync"
 	"time"
 )
 
@@ -135,30 +136,80 @@ func (s BoltStore) _DeleteAll(resource string) error {
 	return err
 }
 
+func newBoltRows(rows [][][]byte) BoltRows {
+	total := len(rows)
+	closed := make(chan bool)
+	retrieved := make(chan bool)
+	nextItem := make(chan interface{})
+	ci := 0
+	b := BoltRows{nextItem: nextItem, closed: closed, retrieved: retrieved}
+	go func() {
+	OUTER:
+		for {
+			select {
+			case <-closed:
+				logger.Info("newBoltRows closed")
+				break OUTER
+				return
+			case item := <-nextItem:
+				// logger.Info("current index", "ci", ci, "total", total)
+				if ci == total {
+					b.lastError = ErrEOF
+					// logger.Info("break bolt rows loop")
+					break OUTER
+					return
+				} else {
+					current := rows[ci]
+					if err := json.Unmarshal(current[1], item); err != nil {
+						logger.Warn(err.Error())
+						b.lastError = err
+						retrieved <- true
+						break OUTER
+						return
+					} else {
+						retrieved <- true
+						ci++
+					}
+				}
+			}
+		}
+		b.Close()
+	}()
+	return b
+}
+
 //New Api
 type BoltRows struct {
-	rows   [][][]byte
-	i      int
-	length int
+	rows      [][][]byte
+	i         int
+	length    int
+	retrieved chan bool
+	closed    chan bool
+	nextItem  chan interface{}
+	lastError error
+	isClosed  bool
+	sync.RWMutex
 }
 
 func (s BoltRows) Next(dst interface{}) (bool, error) {
-	if s.i >= s.length {
-		logger.Info("EOF", "i", s.i, "length", s.length)
-		return false, ErrEOF
+	if s.lastError != nil {
+		return false, s.lastError
 	}
-	s.i = s.i + 1
-	current := s.rows[s.i]
-	logger.Info("next", "i", s.i, "length", s.length, "current", current)
-	if err := json.Unmarshal(current[1], dst); err != nil {
-		logger.Warn(err.Error())
-		return false, err
-	}
+	s.nextItem <- dst
+	<-s.retrieved
 	return true, nil
 }
-
+func (s BoltRows) LastError() error {
+	return s.lastError
+}
 func (s BoltRows) Close() {
-	s.rows = nil
+	// s.rows = nil
+	// s.closed <- true
+	logger.Info("close bolt rows")
+	close(s.closed)
+	close(s.retrieved)
+	close(s.nextItem)
+	s.isClosed = true
 }
 
 func (s BoltStore) All(count int, skip int, store string) (ObjectRows, error) {
@@ -167,15 +218,16 @@ func (s BoltStore) All(count int, skip int, store string) (ObjectRows, error) {
 	if err != nil {
 		return nil, err
 	}
-	return BoltRows{_rows, 0, len(_rows)}, nil
+	return newBoltRows(_rows), nil
 }
 
 func (s BoltStore) _GetAll(count int, skip int, resource string) (objs [][][]byte, err error) {
 	s.CreateBucket(resource)
 	err = s.Db.View(func(tx *bolt.Tx) error {
-		logger.Info("get all", "count", count, "skip", skip, "Store", resource)
 		c := tx.Bucket([]byte(resource)).Cursor()
 		var skip_lim int = 1
+
+		var lim int = 0
 		//Skip a certain amount
 		if skip > 0 {
 			//make sure we hit the database once
@@ -189,26 +241,28 @@ func (s BoltStore) _GetAll(count int, skip int, resource string) (objs [][][]byt
 		} else {
 			//no skip needed. Get first item
 			k, v := c.Last()
-			if k != nil {
-				objs = append(objs, [][]byte{k, v})
-				skip_lim++
-			} else {
+			if k == nil {
 				return err
 			}
+			objs = append(objs, [][]byte{k, v})
+			lim++
+			if lim == count {
+				// logger.Info("count reached", "lim", lim, "count", count)
+				return nil
+			}
 		}
-
 		//Get next items after skipping or getting first item
 		for k, v := c.Prev(); k != nil; k, v = c.Prev() {
-			logger.Info("retrieved", "key", string(k), "val", string(v))
 			objs = append(objs, [][]byte{k, v})
-			if skip_lim == count {
-				logger.Info("count reached", "count", count)
+			lim++
+			if lim == count {
+				// logger.Info("count reached", "lim", lim, "count", count)
 				break
 			}
-			skip_lim++
 		}
 		return err
 	})
+	logger.Info("_GetAll done")
 	return
 }
 
@@ -216,6 +270,7 @@ func (s BoltStore) _GetAllAfter(key []byte, count int, skip int, resource string
 	s.CreateBucket(resource)
 	err = s.Db.View(func(tx *bolt.Tx) error {
 		c := tx.Bucket([]byte(resource)).Cursor()
+		var lim int = 0
 		if skip > 0 {
 			var skip_lim int = 1
 			var target_count int = skip - 1
@@ -231,17 +286,20 @@ func (s BoltStore) _GetAllAfter(key []byte, count int, skip int, resource string
 			k, v := c.Seek(key)
 			if k != nil {
 				objs = append(objs, [][]byte{k, v})
+				lim++
 			} else {
 				return err
 			}
+			if lim == count {
+				return nil
+			}
 		}
-		var lim int = 2
 		for k, v := c.Next(); k != nil; k, v = c.Next() {
 			objs = append(objs, [][]byte{k, v})
+			lim++
 			if lim == count {
 				break
 			}
-			lim++
 		}
 		return err
 	})
@@ -252,6 +310,7 @@ func (s BoltStore) _GetAllBefore(key []byte, count int, skip int, resource strin
 	s.CreateBucket(resource)
 	err = s.Db.View(func(tx *bolt.Tx) error {
 		c := tx.Bucket([]byte(resource)).Cursor()
+		var lim int = 0
 		if skip > 0 {
 			var skip_lim int = 1
 			var target_count int = skip - 1
@@ -266,17 +325,20 @@ func (s BoltStore) _GetAllBefore(key []byte, count int, skip int, resource strin
 			k, v := c.Seek(key)
 			if k != nil {
 				objs = append(objs, [][]byte{k, v})
+				lim++
 			} else {
 				return err
 			}
+			if lim == count {
+				return nil
+			}
 		}
-		var lim int = 2
 		for k, v := c.Prev(); k != nil; k, v = c.Prev() {
 			objs = append(objs, [][]byte{k, v})
+			lim++
 			if lim == count {
 				break
 			}
-			lim++
 		}
 		return err
 	})
@@ -306,14 +368,17 @@ func (s BoltStore) _Filter(prefix []byte, count int, skip int, resource string) 
 			} else {
 				return err
 			}
+			if lim == count {
+				return nil
+			}
 		}
 
 		for k, v := c.Next(); bytes.HasPrefix(k, b_prefix); k, v = c.Next() {
 			objs = append(objs, [][]byte{k, v})
+			lim++
 			if lim == count {
 				break
 			}
-			lim++
 		}
 		return nil
 	})
@@ -401,14 +466,14 @@ func (s BoltStore) Since(id string, count int, skip int, store string) (ObjectRo
 	if err != nil {
 		return nil, err
 	}
-	return BoltRows{_rows, 0, len(_rows)}, nil
+	return newBoltRows(_rows), nil
 } //Get all recent items from a key
 func (s BoltStore) Before(id string, count int, skip int, store string) (ObjectRows, error) {
 	_rows, err := s._GetAllBefore([]byte(id), count, skip, store)
 	if err != nil {
 		return nil, err
 	}
-	return BoltRows{_rows, 0, len(_rows)}, nil
+	return newBoltRows(_rows), nil
 } //Get all existing items before a key
 
 func (s BoltStore) FilterSince(id string, filter map[string]interface{}, count int, skip int, store string, opts ObjectStoreOptions) (ObjectRows, error) {

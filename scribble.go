@@ -27,6 +27,9 @@ type ScribbleRows struct {
 	len  int
 }
 
+func (s ScribbleRows) LastError() error {
+	return nil
+}
 func (s ScribbleRows) Next(dst interface{}) (bool, error) {
 	if s.i >= s.len {
 		return false, nil
