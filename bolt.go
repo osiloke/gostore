@@ -112,11 +112,11 @@ func (s BoltStore) _Save(key []byte, data []byte, resource string) error {
 	return err
 }
 
-func (s BoltStore) _Delete(key []byte, resource string) error {
+func (s BoltStore) _Delete(key string, resource string) error {
 	s.CreateBucket(resource)
 	err := s.Db.Update(func(tx *bolt.Tx) error {
 		b := tx.Bucket([]byte(resource))
-		err := b.Delete(key)
+		err := b.Delete([]byte(key))
 		return err
 	})
 	return err
@@ -453,7 +453,9 @@ func (s BoltStore) Save(store string, src interface{}) (string, error) {
 }
 func (s BoltStore) Update(key string, store string, src interface{}) error  { return nil }
 func (s BoltStore) Replace(key string, store string, src interface{}) error { return nil }
-func (s BoltStore) Delete(key string, store string) error                   { return nil }
+func (s BoltStore) Delete(key string, store string) error {
+	return s._Delete(key, store)
+}
 
 //Filter
 func (s BoltStore) FilterUpdate(filter map[string]interface{}, src interface{}, store string, opts ObjectStoreOptions) error {
