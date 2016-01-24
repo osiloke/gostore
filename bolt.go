@@ -139,7 +139,7 @@ func (s BoltStore) _DeleteAll(resource string) error {
 func newBoltRows(rows [][][]byte) BoltRows {
 	total := len(rows)
 	closed := make(chan bool)
-	retrieved := make(chan bool)
+	retrieved := make(chan string)
 	nextItem := make(chan interface{})
 	ci := 0
 	b := BoltRows{nextItem: nextItem, closed: closed, retrieved: retrieved}
@@ -163,11 +163,11 @@ func newBoltRows(rows [][][]byte) BoltRows {
 					if err := json.Unmarshal(current[1], item); err != nil {
 						logger.Warn(err.Error())
 						b.lastError = err
-						retrieved <- true
+						retrieved <- ""
 						break OUTER
 						return
 					} else {
-						retrieved <- true
+						retrieved <- string(current[0])
 						ci++
 					}
 				}
@@ -183,7 +183,7 @@ type BoltRows struct {
 	rows      [][][]byte
 	i         int
 	length    int
-	retrieved chan bool
+	retrieved chan string
 	closed    chan bool
 	nextItem  chan interface{}
 	lastError error
@@ -196,7 +196,13 @@ func (s BoltRows) Next(dst interface{}) (bool, error) {
 		return false, s.lastError
 	}
 	s.nextItem <- dst
-	<-s.retrieved
+	key := <-s.retrieved
+	if key == "" {
+		return false, nil
+	}
+	if _v, ok := dst.(map[string]interface{}); ok {
+		_v["id"] = key
+	}
 	return true, nil
 }
 func (s BoltRows) LastError() error {
@@ -209,7 +215,7 @@ func (s BoltRows) Close() {
 	close(s.closed)
 	close(s.retrieved)
 	close(s.nextItem)
-	s.isClosed = true
+	// s.isClosed = true
 }
 
 func (s BoltStore) All(count int, skip int, store string) (ObjectRows, error) {
