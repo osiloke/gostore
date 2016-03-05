@@ -89,7 +89,7 @@ func (rs RethinkStore) CreateTable(store string, schema interface{}) (err error)
 			for name, _vals := range indexes {
 				if !hasIndex(name, res) {
 					logger.Info("creating index", "name", name, "val", _vals)
-					if vals, ok := _vals.([]interface{}); ok {
+					if vals, ok := _vals.([]interface{}); ok && len(vals) > 0 {
 						logger.Info("creating compound index", "name", name, "vals", vals)
 						if _, err = r.DB(rs.Database).Table(store).IndexCreateFunc(name, func(row r.Term) interface{} {
 							index_fields := []interface{}{}
@@ -206,6 +206,25 @@ func (s RethinkStore) AllCursor(store string) (ObjectRows, error) {
 	}
 	defer result.Close()
 	return RethinkRows{result}, nil
+}
+
+func (s RethinkStore) AllWithinRange(filter map[string]interface{}, count int, skip int, store string, opts ObjectStoreOptions) (rrows ObjectRows, err error) {
+
+	var rootTerm = s.getRootTerm(store, filter, opts)
+	if count > 0 {
+		rootTerm = rootTerm.Limit(count)
+	}
+	result, err := rootTerm.Skip(skip).Run(s.Session)
+	if err != nil {
+		logger.Error("err", "err", err)
+		return
+	}
+	if result.IsNil() {
+		return nil, ErrNotFound
+	}
+	rrows = RethinkRows{result}
+	logger.Debug("AllWithinRange::done", "query", rootTerm.String(), "err", result.Err())
+	return
 }
 
 //Before will retrieve all old rows that were created before the row with id was created
@@ -325,7 +344,7 @@ func (s RethinkStore) getRootTerm(store string, filter map[string]interface{}, o
 	var hasMultiIndex = false
 	var indexName string
 	var indexVal string
-	for name, _ := range indexes {
+	for name := range indexes {
 		logger.Debug("checking index " + name)
 		if val, ok := filter[name].(string); ok {
 			hasIndex = true
@@ -358,7 +377,6 @@ func (s RethinkStore) getRootTerm(store string, filter map[string]interface{}, o
 }
 func (s RethinkStore) FilterBefore(id string, filter map[string]interface{}, count int, skip int, store string, opts ObjectStoreOptions) (rows ObjectRows, err error) {
 	_ = "breakpoint"
-	_ = "FilterGet"
 	result, err := r.DB(s.Database).Table(store).Between(
 		r.MinVal, id, r.BetweenOpts{RightBound: "closed"}).OrderBy(
 		r.OrderByOpts{Index: r.Desc("id")}).Filter(
@@ -415,13 +433,12 @@ func (s RethinkStore) FilterReplace(filter map[string]interface{}, src interface
 	return
 }
 
-func (s RethinkStore) FilterGet(filter map[string]interface{}, store string, dst interface{}, opts ObjectStoreOptions) (err error) {
-	_ = "breakpoint"
-	_ = "FilterGet"
+func (s RethinkStore) FilterGet(filter map[string]interface{}, store string, dst interface{}, opts ObjectStoreOptions) error {
+
 	// var rootTerm = s.getRootTerm(store, filter, opts)
 	var rootTerm = r.DB(s.Database).Table(store)
 	indexes := opts.GetIndexes()
-	for k, _ := range indexes {
+	for k := range indexes {
 		if val, ok := filter[k].(string); ok {
 			rootTerm = rootTerm.GetAllByIndex(k, val)
 			break
@@ -429,37 +446,47 @@ func (s RethinkStore) FilterGet(filter map[string]interface{}, store string, dst
 	}
 	rootTerm = rootTerm.Filter(s.ParseFilterArgs(filter, nil, opts))
 	result, err := rootTerm.Limit(1).Run(s.Session)
-	logger.Debug("FilterGet", "query", rootTerm.String())
+	logger.Debug("FilterGet::done", "store", store, "query", rootTerm.String())
 	// logger.Debug("filter get", "opts", opts, "filter", filter, "query", rootTerm.String())
 	if err != nil {
 		logger.Error("failed to get", "err", err.Error())
-		return
+		return err
 	}
 	defer result.Close()
+	if result.IsNil() == true {
+		return ErrNotFound
+	}
+	if err := result.One(dst); err != nil {
+		println(err.Error())
+		if err == r.ErrEmptyResult {
+			return ErrNotFound
+		} else {
+			return err
+		}
 
-	if result.IsNil() {
-		return ErrNotFound
 	}
-	if err = result.One(dst); err == r.ErrEmptyResult {
-		return ErrNotFound
-	}
-	return
+	return nil
 }
 
 func (s RethinkStore) FilterGetAll(filter map[string]interface{}, count int, skip int, store string, opts ObjectStoreOptions) (rrows ObjectRows, err error) {
 
-	_ = "breakpoint"
-	_ = "FilterGetAll"
+	logger.Debug("FilterGetAll::start", "filter", filter, "count", count, "skip", skip, "store", store)
 	var rootTerm = s.getRootTerm(store, filter, opts)
-	if count > 0 {
-		rootTerm = rootTerm.Limit(count)
-	}
-	result, err := rootTerm.Skip(skip).Run(s.Session)
+	// if count > 0 {
+	// 	rootTerm = rootTerm.Limit(count)
+	// }
+	// result, err := rootTerm.Skip(skip).Run(s.Session)
+	// if err != nil {
+	// 	logger.Error("err", "err", err)
+	// 	return
+	// }
+	query := rootTerm.Slice(skip, count+skip)
+	result, err := query.Run(s.Session)
 	if err != nil {
 		logger.Error("err", "err", err)
 		return
 	}
-	logger.Debug("FilterGetAll", "query", rootTerm.String(), "err", result.Err())
+	logger.Debug("FilterGetAll::done", "query", rootTerm, "err", result.Err(), "store", store)
 	if result.IsNil() {
 		return nil, ErrNotFound
 	}

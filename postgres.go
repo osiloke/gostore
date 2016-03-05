@@ -105,6 +105,10 @@ func (s PostgresObjectStore) AllCursor(store string) (ObjectRows, error) {
 	return nil, errors.New("Not implemented")
 }
 
+func (s PostgresObjectStore) AllWithinRange(filter map[string]interface{}, count int, skip int, store string, opts ObjectStoreOptions) (ObjectRows, error) {
+	return nil, errors.New("Not implemented")
+}
+
 func (s PostgresObjectStore) Get(id, store string, dst interface{}) (err error) {
 	result := s.db.Table(safeStoreName(store)).Select("raw").Where("id = ?", id)
 	if result.Error != nil {

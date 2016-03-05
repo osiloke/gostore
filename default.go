@@ -47,6 +47,7 @@ type ObjectStore interface {
 	//New Api
 	All(count int, skip int, store string) (ObjectRows, error)
 	AllCursor(store string) (ObjectRows, error)
+	AllWithinRange(filter map[string]interface{}, count int, skip int, store string, opts ObjectStoreOptions) (ObjectRows, error)
 
 	Since(id string, count int, skip int, store string) (ObjectRows, error)  //Get all recent items from a key
 	Before(id string, count int, skip int, store string) (ObjectRows, error) //Get all existing items before a key

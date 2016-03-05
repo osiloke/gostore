@@ -77,6 +77,9 @@ func (s ScribbleStore) All(count int, skip int, store string) (ObjectRows, error
 func (s ScribbleStore) AllCursor(store string) (ObjectRows, error) {
 	return nil, ErrNotImplemented
 }
+func (s ScribbleStore) AllWithinRange(filter map[string]interface{}, count int, skip int, store string, opts ObjectStoreOptions) (ObjectRows, error) {
+	return nil, ErrNotImplemented
+}
 
 func (s ScribbleStore) Since(id string, count int, skip int, store string) (ObjectRows, error) {
 	return nil, ErrNotImplemented

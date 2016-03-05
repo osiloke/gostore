@@ -5,7 +5,7 @@ import (
 	"bytes"
 	"github.com/boltdb/bolt"
 	"github.com/dustin/gojson"
-	"github.com/fatih/structs"
+	// "github.com/fatih/structs"
 	// "github.com/ventu-io/go-shortid"
 	"log"
 	"sync"
@@ -195,14 +195,16 @@ func (s BoltRows) Next(dst interface{}) (bool, error) {
 	if s.lastError != nil {
 		return false, s.lastError
 	}
-	s.nextItem <- dst
+	//NOTE: Consider saving id in bolt data
+	var _dst map[string]interface{}
+	s.nextItem <- &_dst
 	key := <-s.retrieved
 	if key == "" {
 		return false, nil
 	}
-	if _v, ok := dst.(map[string]interface{}); ok {
-		_v["id"] = key
-	}
+	_dst["id"] = key
+	_data, _ := json.Marshal(&_dst)
+	json.Unmarshal(_data, dst)
 	return true, nil
 }
 func (s BoltRows) LastError() error {
@@ -457,16 +459,20 @@ func (s BoltStore) StreamAll(count int, resource string) chan [][]byte {
 }
 
 func (s BoltStore) Stats(bucket string) (data map[string]interface{}, err error) {
+	data = make(map[string]interface{})
 	err = s.Db.View(func(tx *bolt.Tx) error {
 		v := tx.Bucket([]byte(bucket)).Stats()
-		data = structs.Map(v)
+		data["total_count"] = v.KeyN
 		return nil
 	})
 	return
 }
 
-func (s BoltStore) AllCursor(store string) (ObjectRows, error) { return nil, nil }
+func (s BoltStore) AllCursor(store string) (ObjectRows, error) { return nil, ErrNotImplemented }
 
+func (s BoltStore) AllWithinRange(filter map[string]interface{}, count int, skip int, store string, opts ObjectStoreOptions) (ObjectRows, error) {
+	return nil, ErrNotImplemented
+}
 func (s BoltStore) Since(id string, count int, skip int, store string) (ObjectRows, error) {
 	_rows, err := s._GetAllAfter([]byte(id), count, skip, store)
 	if err != nil {
@@ -483,13 +489,13 @@ func (s BoltStore) Before(id string, count int, skip int, store string) (ObjectR
 } //Get all existing items before a key
 
 func (s BoltStore) FilterSince(id string, filter map[string]interface{}, count int, skip int, store string, opts ObjectStoreOptions) (ObjectRows, error) {
-	return nil, nil
+	return nil, ErrNotImplemented
 } //Get all recent items from a key
 func (s BoltStore) FilterBefore(id string, filter map[string]interface{}, count int, skip int, store string, opts ObjectStoreOptions) (ObjectRows, error) {
-	return nil, nil
+	return nil, ErrNotImplemented
 } //Get all existing items before a key
 func (s BoltStore) FilterBeforeCount(id string, filter map[string]interface{}, count int, skip int, store string, opts ObjectStoreOptions) (int64, error) {
-	return 0, nil
+	return 0, ErrNotImplemented
 } //Get all existing items before a key
 
 func (s BoltStore) Get(key string, store string, dst interface{}) error {
@@ -530,27 +536,27 @@ func (s BoltStore) Save(store string, src interface{}) (string, error) {
 	}
 	return key, nil
 }
-func (s BoltStore) Update(key string, store string, src interface{}) error  { return nil }
-func (s BoltStore) Replace(key string, store string, src interface{}) error { return nil }
+func (s BoltStore) Update(key string, store string, src interface{}) error  { return ErrNotImplemented }
+func (s BoltStore) Replace(key string, store string, src interface{}) error { return ErrNotImplemented }
 func (s BoltStore) Delete(key string, store string) error {
 	return s._Delete(key, store)
 }
 
 //Filter
 func (s BoltStore) FilterUpdate(filter map[string]interface{}, src interface{}, store string, opts ObjectStoreOptions) error {
-	return nil
+	return ErrNotImplemented
 }
 func (s BoltStore) FilterReplace(filter map[string]interface{}, src interface{}, store string, opts ObjectStoreOptions) error {
-	return nil
+	return ErrNotImplemented
 }
 func (s BoltStore) FilterGet(filter map[string]interface{}, store string, dst interface{}, opts ObjectStoreOptions) error {
-	return nil
+	return ErrNotImplemented
 }
 func (s BoltStore) FilterGetAll(filter map[string]interface{}, count int, skip int, store string, opts ObjectStoreOptions) (ObjectRows, error) {
-	return nil, nil
+	return nil, ErrNotImplemented
 }
 func (s BoltStore) FilterDelete(filter map[string]interface{}, store string, opts ObjectStoreOptions) error {
-	return nil
+	return ErrNotImplemented
 }
 func (s BoltStore) FilterCount(filter map[string]interface{}, store string, opts ObjectStoreOptions) (int64, error) {
 	// if data, err := s.Stats(store); err != nil {
@@ -565,6 +571,6 @@ func (s BoltStore) FilterCount(filter map[string]interface{}, store string, opts
 //Misc gets
 func (s BoltStore) GetByField(name, val, store string, dst interface{}) error { return nil }
 func (s BoltStore) GetByFieldsByField(name, val, store string, fields []string, dst interface{}) (err error) {
-	return nil
+	return ErrNotImplemented
 }
 func (s BoltStore) Close() {}
