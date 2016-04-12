@@ -121,7 +121,7 @@ func (rs RethinkStore) CreateTable(store string, schema interface{}) (err error)
 	return
 }
 
-type TermOperators map[string]func(args ...interface{}) interface{}
+type TermOperators map[string]func(args ...interface{}) r.Term
 
 func parseFilter(args string) (dtarg interface{}) {
 	//this also handles args
@@ -148,7 +148,7 @@ func parseFilter(args string) (dtarg interface{}) {
 }
 
 var filterOps TermOperators = TermOperators{
-	"~": func(args ...interface{}) interface{} {
+	"~": func(args ...interface{}) r.Term {
 		vals := strings.Split(args[1].(string), "|")
 		baseTerm := args[0].(r.Term)
 		if len(vals) > 0 {
@@ -156,14 +156,22 @@ var filterOps TermOperators = TermOperators{
 		}
 		return baseTerm.Match(vals[0])
 	},
-	">": func(args ...interface{}) interface{} {
+	">": func(args ...interface{}) r.Term {
 		baseTerm := args[0].(r.Term)
 		return baseTerm.Gt(parseFilter(args[1].(string)))
 	},
-	"<": func(args ...interface{}) interface{} {
+	"<": func(args ...interface{}) r.Term {
 		baseTerm := args[0].(r.Term)
 		return baseTerm.Lt(parseFilter(args[1].(string)))
 	},
+}
+
+func orTerm(baseTerm r.Term, to r.Term) r.Term {
+	return baseTerm.Or(to)
+}
+
+func andTerm(baseTerm r.Term, to r.Term) r.Term {
+	return baseTerm.And(to)
 }
 
 // TODO: Transforms filter args into rethinkdb filter args
@@ -173,18 +181,58 @@ func (s RethinkStore) ParseFilterArgs(filter map[string]interface{}, indexes []s
 	)
 	logger.Debug("filterArgs", "filter", filter, "indexes", indexes, "opts", opts)
 	//TODO: Optimize this by passing indexes as well as field types
+	orGroup := map[string]r.Term{}
 	for k, v := range filter {
 		val := v.(string)
+		key_rune := []rune(k)
 		val_rune := []rune(val)
+
 		if len(val_rune) > 0 {
+			var start int = 1
+			// joinMethod := andTerm
 			first := string(val_rune[0])
-			if op, ok := filterOps[first]; ok {
-				tv := string([]rune(val)[1:])
-				t = t.And(op(r.Row.Field(k), tv))
+			//Handle `or` grouping by key
+			if string(key_rune[0]) == "|" {
+				//split |groupName|field_name
+				orGroupName := ""
+				k_index := 0
+				rune_val := ""
+				for _rune_index, v := range key_rune[1:] {
+					rune_val = string(v)
+					if rune_val == "|" {
+						k_index = _rune_index + 2
+						break
+					}
+					orGroupName += rune_val
+				}
+				k = string(key_rune[k_index:])
+				if op, ok := filterOps[first]; ok {
+					tv := string([]rune(val)[start:])
+					if orGroupVal, ok := orGroup[orGroupName]; !ok {
+						orGroup[orGroupName] = op(r.Row.Field(k), tv)
+					} else {
+						orGroup[orGroupName] = orGroupVal.Or(op(r.Row.Field(k), tv))
+					}
+				} else {
+					if orGroupVal, ok := orGroup[orGroupName]; !ok {
+						orGroup[orGroupName] = r.Row.Field(k).Eq(v)
+					} else {
+						orGroup[orGroupName] = orGroupVal.Or(r.Row.Field(k).Eq(v))
+					}
+				}
 			} else {
-				t = t.And(r.Row.Field(k).Eq(v))
+				if op, ok := filterOps[first]; ok {
+					tv := string([]rune(val)[start:])
+					t = t.And(op(r.Row.Field(k), tv))
+				} else {
+					t = t.And(r.Row.Field(k).Eq(v))
+				}
 			}
+
 		}
+	}
+	for _, v := range orGroup {
+		t = t.And(v)
 	}
 	// logger.Debug(t.String())
 	return t
