@@ -13,6 +13,21 @@ import (
 
 var logger = log.New("gostore.rethink")
 
+func NewRethinkObjectStoreAndSession(address, database string) (RethinkStore, error) {
+	session, err := r.Connect(r.ConnectOpts{
+		Address: address,
+		// MaxIdle: 10,
+		// MaxOpen: 10,
+		// Timeout: time.Second * 100,
+	})
+	//			r.SetVerbose(true)
+	if err != nil {
+		println("Error while opening rethinkdb database", err.Error())
+		return RethinkStore{}, err
+	}
+	return NewRethinkObjectStore(session, database), nil
+}
+
 func NewRethinkObjectStore(session *r.Session, database string) RethinkStore {
 	s := RethinkStore{session, database}
 	s.CreateDatabase()
