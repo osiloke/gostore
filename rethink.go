@@ -543,14 +543,20 @@ func (s RethinkStore) FilterGetAll(filter map[string]interface{}, count int, ski
 	// 	logger.Error("err", "err", err)
 	// 	return
 	// }
-	query := rootTerm.Slice(skip, count+skip)
+	var query r.Term
+	if skip == 0 && count+skip == 0 {
+		query = rootTerm
+	} else {
+		query = rootTerm.Slice(skip, count+skip)
+	}
 	result, err := query.Run(s.Session)
 	if err != nil {
 		logger.Error("err", "err", err)
 		return
 	}
-	logger.Debug("FilterGetAll::done", "query", rootTerm, "err", result.Err(), "store", store)
+	logger.Debug("FilterGetAll::done", "query", rootTerm, "store", store)
 	if result.IsNil() {
+		// logger.Error("err", "err", result.Err())
 		return nil, ErrNotFound
 	}
 	rrows = RethinkRows{result}
