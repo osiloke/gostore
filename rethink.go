@@ -197,6 +197,7 @@ func (s RethinkStore) ParseFilterArgs(filter map[string]interface{}, indexes []s
 	logger.Debug("filterArgs", "filter", filter, "indexes", indexes, "opts", opts)
 	//TODO: Optimize this by passing indexes as well as field types
 	orGroup := map[string]r.Term{}
+	andGroup := map[string]r.Term{}
 	for k, v := range filter {
 		val := v.(string)
 		key_rune := []rune(k)
@@ -235,6 +236,35 @@ func (s RethinkStore) ParseFilterArgs(filter map[string]interface{}, indexes []s
 						orGroup[orGroupName] = orGroupVal.Or(r.Row.Field(k).Eq(v))
 					}
 				}
+			} else if string(key_rune[0]) == "&" {
+				//split |groupName|field_name
+				andGroupName := ""
+				// k_index := 0
+				// rune_val := ""
+				// for _rune_index, v := range key_rune[1:] {
+				// 	rune_val = string(v)
+				// 	if rune_val == "&" {
+				// 		k_index = _rune_index + 2
+				// 		break
+				// 	}
+				// 	andGroupName += rune_val
+				// }
+				k_index := 1
+				k = string(key_rune[k_index:])
+				if op, ok := filterOps[first]; ok {
+					tv := string([]rune(val)[start:])
+					if andGroupVal, ok := andGroup[andGroupName]; !ok {
+						andGroup[andGroupName] = op(r.Row.Field(k), tv)
+					} else {
+						andGroup[andGroupName] = andGroupVal.And(op(r.Row.Field(k), tv))
+					}
+				} else {
+					if andGroupVal, ok := andGroup[andGroupName]; !ok {
+						andGroup[andGroupName] = r.Row.Field(k).Eq(v)
+					} else {
+						andGroup[andGroupName] = andGroupVal.And(r.Row.Field(k).Eq(v))
+					}
+				}
 			} else {
 				if op, ok := filterOps[first]; ok {
 					tv := string([]rune(val)[start:])
@@ -247,6 +277,9 @@ func (s RethinkStore) ParseFilterArgs(filter map[string]interface{}, indexes []s
 		}
 	}
 	for _, v := range orGroup {
+		t = t.And(v)
+	}
+	for _, v := range andGroup {
 		t = t.And(v)
 	}
 	// logger.Debug(t.String())
