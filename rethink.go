@@ -162,6 +162,11 @@ func parseFilter(args string) (dtarg interface{}) {
 	return vals[0]
 }
 
+//filterOps returns rethink term operators which filter a table
+//Currently supported filters:
+// ~<query>:performs a fuzzy match against a query. query is any valid regex
+// ><value>:performs a greater than query
+// <<value>:performs a less than query
 var filterOps TermOperators = TermOperators{
 	"~": func(args ...interface{}) r.Term {
 		vals := strings.Split(args[1].(string), "|")
