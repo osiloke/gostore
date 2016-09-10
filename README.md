@@ -9,8 +9,9 @@ Still being developed, use at own risk or when i update this note.
 #### Screenshot
 
 ## Usage
-```$ go get github.com/osiloke/gostore
-...```
+```
+$ go get github.com/osiloke/gostore
+```
 
 ## Contributors
 
@@ -26,7 +27,7 @@ Still being developed, use at own risk or when i update this note.
 ## Contact
 #### Developer/Company
 * Homepage: osiloke.com
-* e-mail: osi@emoekpere.org
+* e-mail: me@osiloke.com
 * Twitter: [@osiloke](https://twitter.com/osiloke "osiloke on twitter") 
 
-[![Flattr this git repo](http://api.flattr.com/button/flattr-badge-large.png)](https://flattr.com/submit/auto?user_id=username&url=https://github.com/username/sw-name&title=sw-name&language=&tags=github&category=software) 
+[![Flattr this git repo](http://api.flattr.com/button/flattr-badge-large.png)](https://flattr.com/submit/auto?user_id=lgxkqk&url=https://github.com/osiloke/gostore&title=gostore&language=golang&tags=github&category=software) 
