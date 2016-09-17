@@ -192,6 +192,38 @@ func (s PostgresObjectStore) Save(store string, src interface{}) (key string, er
 	return
 }
 
+func (s PostgresObjectStore) SaveAll(store string, srcArray ...interface{}) (keys []string, err error) {
+	for _, src := range srcArray {
+		if data, err := json.Marshal(src); err == nil {
+			var id string
+			if i, ok := src.(map[string]interface{})["id"].(string); ok {
+				id = i
+			} else {
+				id = NewObjectId().Hex()
+			}
+			item := Storage{id, string(data)}
+			//		id_created := s.db.Table(safeStoreName(store)).NewRecord(item)
+			//		if id_created {
+			//			logger.Warn("Id was generated for saved item", "item", item)
+			//		}
+			result := s.db.Table(safeStoreName(store)).Create(&item)
+			if result.Error != nil {
+				err = result.Error
+				if err == sql.ErrNoRows {
+					return nil, err
+				}
+			}
+
+			// key = item.Id
+		}
+		if err != nil {
+			logger.Debug("Error saving doc", "Err", err)
+			return
+		}
+	}
+	return
+}
+
 func (s PostgresObjectStore) Update(id string, store string, src interface{}) (err error) {
 	//TODO:perform update by retrieving existing data and merging data
 	if data, err := json.Marshal(src); err == nil {

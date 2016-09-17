@@ -7,6 +7,7 @@ type Store interface {
 	Get(key []byte, resource string) ([][]byte, error)
 	PrefixGet(prefix []byte, resource string) ([][]byte, error) //Gets an item with a prefix
 	Save(key []byte, obj []byte, resource string) error
+	SaveAll(store string, src ...interface{}) (keys []string, err error)
 	Delete(key []byte, resource string) error
 	DeleteAll(resource string) error
 	GetAll(count int, skip int, resource string) ([][][]byte, error)

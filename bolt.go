@@ -536,6 +536,9 @@ func (s BoltStore) Save(store string, src interface{}) (string, error) {
 	}
 	return key, nil
 }
+func (s BoltStore) SaveAll(store string, src ...interface{}) (keys []string, err error) {
+	return nil, ErrNotImplemented
+}
 func (s BoltStore) Update(key string, store string, src interface{}) error  { return ErrNotImplemented }
 func (s BoltStore) Replace(key string, store string, src interface{}) error { return ErrNotImplemented }
 func (s BoltStore) Delete(key string, store string) error {

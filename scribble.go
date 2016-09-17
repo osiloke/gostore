@@ -122,6 +122,9 @@ func (s ScribbleStore) Save(store string, src interface{}) (string, error) {
 	}
 	return key, nil
 }
+func (s ScribbleStore) SaveAll(store string, src ...interface{}) (keys []string, err error) {
+	return nil, ErrNotImplemented
+}
 func (s ScribbleStore) Update(key string, store string, src interface{}) error {
 	return ErrNotImplemented
 }

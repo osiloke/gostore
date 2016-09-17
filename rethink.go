@@ -46,9 +46,6 @@ type RethinkRows struct {
 func (s RethinkRows) LastError() error {
 	return nil
 }
-func NewRethinkRows(cursor *r.Cursor) RethinkRows {
-	return RethinkRows{cursor}
-}
 
 func (s RethinkRows) Next(dst interface{}) (bool, error) {
 	if !s.cursor.Next(dst) {
@@ -60,6 +57,10 @@ func (s RethinkRows) Next(dst interface{}) (bool, error) {
 
 func (s RethinkRows) Close() {
 	s.cursor.Close()
+}
+
+func NewRethinkRows(cursor *r.Cursor) RethinkRows {
+	return RethinkRows{cursor}
 }
 
 func (s RethinkStore) CreateDatabase() (err error) {
@@ -77,6 +78,10 @@ func hasIndex(name string, indexes []interface{}) bool {
 		}
 	}
 	return false
+}
+
+func (rs RethinkStore) DropTable(store string) error {
+	return r.DB(rs.Database).TableDrop(store).Exec(rs.Session)
 }
 
 //TODO: fix index creation, indexes are not created properly
@@ -394,6 +399,21 @@ func (s RethinkStore) Save(store string, src interface{}) (key string, err error
 
 }
 
+func (s RethinkStore) SaveAll(store string, src ...interface{}) (keys []string, err error) {
+	result, err := r.DB(s.Database).Table(store).Insert(src, r.InsertOpts{Durability: "hard"}).RunWrite(s.Session)
+	if err != nil {
+		if strings.Contains(err.Error(), "Duplicate primary key") {
+			err = ErrDuplicatePk
+		}
+		return
+	}
+	if len(result.GeneratedKeys) > 0 {
+		keys = result.GeneratedKeys
+	}
+	return
+
+}
+
 func (s RethinkStore) Update(id string, store string, src interface{}) (err error) {
 	_, err = r.DB(s.Database).Table(store).Get(id).Update(src, r.UpdateOpts{Durability: "soft"}).RunWrite(s.Session)
 	return
@@ -408,6 +428,11 @@ func (s RethinkStore) Replace(id string, store string, src interface{}) (err err
 func (s RethinkStore) Delete(id string, store string) (err error) {
 	_, err = r.DB(s.Database).Table(store).Get(id).Delete(r.DeleteOpts{Durability: "hard"}).RunWrite(s.Session)
 	logger.Debug("deleting " + id + " from " + store)
+	return
+}
+func (s RethinkStore) DeleteAll(store string) (err error) {
+	_, err = r.DB(s.Database).Table(store).Delete(r.DeleteOpts{Durability: "hard"}).RunWrite(s.Session)
+	logger.Debug("deleting all entried from " + store)
 	return
 }
 
@@ -439,25 +464,27 @@ func (s RethinkStore) GetByField(name, val, store string, dst interface{}) (err 
 // http://stackoverflow.com/questions/19747207/rethinkdb-index-for-filter-orderby
 func (s RethinkStore) getRootTerm(store string, filter map[string]interface{}, opts ObjectStoreOptions) (rootTerm r.Term) {
 	rootTerm = r.DB(s.Database).Table(store)
-	indexes := opts.GetIndexes()
-	logger.Debug("getRootTerm", "store", store, "filter", filter, "opts", opts)
 	var hasIndex = false
 	var hasMultiIndex = false
 	var indexName string
 	var indexVal string
-	for name := range indexes {
-		logger.Debug("checking index " + name)
-		if val, ok := filter[name].(string); ok {
-			hasIndex = true
-			indexVal = val
-			indexName = name
-			ix_id_name := name + "_id"
-			if _, ok := indexes[ix_id_name]; ok {
-				indexName = ix_id_name
-				hasMultiIndex = true
+	if opts != nil {
+		indexes := opts.GetIndexes()
+		logger.Debug("getRootTerm", "store", store, "filter", filter, "opts", opts)
+		for name := range indexes {
+			logger.Debug("checking index " + name)
+			if val, ok := filter[name].(string); ok {
+				hasIndex = true
+				indexVal = val
+				indexName = name
+				ix_id_name := name + "_id"
+				if _, ok := indexes[ix_id_name]; ok {
+					indexName = ix_id_name
+					hasMultiIndex = true
+					break
+				}
 				break
 			}
-			break
 		}
 	}
 	if !hasIndex {
@@ -478,12 +505,22 @@ func (s RethinkStore) getRootTerm(store string, filter map[string]interface{}, o
 }
 func (s RethinkStore) FilterBefore(id string, filter map[string]interface{}, count int, skip int, store string, opts ObjectStoreOptions) (rows ObjectRows, err error) {
 	_ = "breakpoint"
-	result, err := r.DB(s.Database).Table(store).Between(
+	rootTerm := r.DB(s.Database).Table(store).Between(
 		r.MinVal, id, r.BetweenOpts{RightBound: "closed"}).OrderBy(
 		r.OrderByOpts{Index: r.Desc("id")}).Filter(
-		s.ParseFilterArgs(filter, nil, opts)).Limit(count).Run(s.Session)
+		s.ParseFilterArgs(filter, nil, opts)).Limit(count)
+	result, err := rootTerm.Run(s.Session)
 	if err != nil {
 		return
+	}
+	// defer result.Close()
+	if result.Err() != nil {
+		return nil, result.Err()
+	}
+	if result.IsNil() {
+
+		logger.Debug("FilterBefore::Failed", "query", rootTerm, "store", store)
+		return nil, ErrNotFound
 	}
 	//	var dst interface{}
 	f, _ := json.Marshal(filter)
@@ -520,6 +557,13 @@ func (s RethinkStore) FilterSince(id string, filter map[string]interface{}, coun
 	if err != nil {
 		return
 	}
+	// defer result.Close()
+	if result.Err() != nil {
+		return nil, result.Err()
+	}
+	if result.IsNil() == true {
+		return nil, ErrNotFound
+	}
 	//	result.All(dst)
 	rows = RethinkRows{result}
 	return
@@ -534,15 +578,21 @@ func (s RethinkStore) FilterReplace(filter map[string]interface{}, src interface
 	return
 }
 
+/*
+FilterGet retrieves only one item based on a filter
+It is used as a shortcut to FilterGetAll with size == 1
+*/
 func (s RethinkStore) FilterGet(filter map[string]interface{}, store string, dst interface{}, opts ObjectStoreOptions) error {
 
 	// var rootTerm = s.getRootTerm(store, filter, opts)
 	var rootTerm = r.DB(s.Database).Table(store)
-	indexes := opts.GetIndexes()
-	for k := range indexes {
-		if val, ok := filter[k].(string); ok {
-			rootTerm = rootTerm.GetAllByIndex(k, val)
-			break
+	if opts != nil {
+		indexes := opts.GetIndexes()
+		for k := range indexes {
+			if val, ok := filter[k].(string); ok {
+				rootTerm = rootTerm.GetAllByIndex(k, val)
+				break
+			}
 		}
 	}
 	rootTerm = rootTerm.Filter(s.ParseFilterArgs(filter, nil, opts))
@@ -554,6 +604,9 @@ func (s RethinkStore) FilterGet(filter map[string]interface{}, store string, dst
 		return err
 	}
 	defer result.Close()
+	if result.Err() != nil {
+		return result.Err()
+	}
 	if result.IsNil() == true {
 		return ErrNotFound
 	}
@@ -592,7 +645,11 @@ func (s RethinkStore) FilterGetAll(filter map[string]interface{}, count int, ski
 		logger.Error("err", "err", err)
 		return
 	}
+	// defer result.Close()
 	logger.Debug("FilterGetAll::done", "query", rootTerm, "store", store)
+	if result.Err() != nil {
+		return nil, result.Err()
+	}
 	if result.IsNil() {
 		// logger.Error("err", "err", result.Err())
 		return nil, ErrNotFound
@@ -621,6 +678,9 @@ func (s RethinkStore) FilterCount(filter map[string]interface{}, store string, o
 		return 0, err
 	}
 	defer result.Close()
+	if result.Err() != nil {
+		return 0, result.Err()
+	}
 	var cnt int64
 	if err = result.One(&cnt); err != nil {
 		return 0, ErrNotFound
