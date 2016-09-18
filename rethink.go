@@ -662,7 +662,16 @@ func (s RethinkStore) FilterDelete(filter map[string]interface{}, store string, 
 	_ = "breakpoint"
 	_ = "FilterDelete"
 	var rootTerm = s.getRootTerm(store, filter, opts)
-	_, err = rootTerm.Delete(r.DeleteOpts{Durability: "soft"}).RunWrite(s.Session)
+	_, err = rootTerm.Delete(r.DeleteOpts{Durability: "hard"}).RunWrite(s.Session)
+	if err == r.ErrEmptyResult {
+		return ErrNotFound
+	}
+	return
+}
+func (s RethinkStore) BatchFilterDelete(filter map[string]interface{}, store string, opts ObjectStoreOptions) (err error) {
+
+	var rootTerm = s.getRootTerm(store, filter, opts)
+	_, err = rootTerm.Delete(r.DeleteOpts{Durability: "hard"}).RunWrite(s.Session)
 	if err == r.ErrEmptyResult {
 		return ErrNotFound
 	}

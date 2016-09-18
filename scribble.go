@@ -151,6 +151,9 @@ func (s ScribbleStore) FilterGetAll(filter map[string]interface{}, count int, sk
 func (s ScribbleStore) FilterDelete(filter map[string]interface{}, store string, opts ObjectStoreOptions) error {
 	return ErrNotImplemented
 }
+func (s ScribbleStore) BatchFilterDelete(filter map[string]interface{}, store string, opts ObjectStoreOptions) error {
+	return ErrNotImplemented
+}
 func (s ScribbleStore) FilterCount(filter map[string]interface{}, store string, opts ObjectStoreOptions) (int64, error) {
 	return 0, ErrNotImplemented
 }

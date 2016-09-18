@@ -7,7 +7,6 @@ type Store interface {
 	Get(key []byte, resource string) ([][]byte, error)
 	PrefixGet(prefix []byte, resource string) ([][]byte, error) //Gets an item with a prefix
 	Save(key []byte, obj []byte, resource string) error
-	SaveAll(store string, src ...interface{}) (keys []string, err error)
 	Delete(key []byte, resource string) error
 	DeleteAll(resource string) error
 	GetAll(count int, skip int, resource string) ([][][]byte, error)
@@ -59,6 +58,7 @@ type ObjectStore interface {
 
 	Get(key string, store string, dst interface{}) error
 	Save(store string, src interface{}) (string, error)
+	SaveAll(store string, src ...interface{}) (keys []string, err error)
 	Update(key string, store string, src interface{}) error
 	Replace(key string, store string, src interface{}) error
 	Delete(key string, store string) error
@@ -69,6 +69,7 @@ type ObjectStore interface {
 	FilterGet(filter map[string]interface{}, store string, dst interface{}, opts ObjectStoreOptions) error
 	FilterGetAll(filter map[string]interface{}, count int, skip int, store string, opts ObjectStoreOptions) (ObjectRows, error)
 	FilterDelete(filter map[string]interface{}, store string, opts ObjectStoreOptions) error
+	BatchFilterDelete(filter map[string]interface{}, store string, opts ObjectStoreOptions) error
 	FilterCount(filter map[string]interface{}, store string, opts ObjectStoreOptions) (int64, error)
 
 	//Misc gets
