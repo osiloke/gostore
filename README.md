@@ -45,5 +45,6 @@ $ go get github.com/osiloke/gostore
 * Homepage: osiloke.com
 * e-mail: me@osiloke.com
 * Twitter: [@osiloke](https://twitter.com/osiloke "osiloke on twitter") 
+* Twitter (Again?): [@osilocks](https://twitter.com/osilocks "osiloke on twitter") 
 
 [![Flattr this git repo](http://api.flattr.com/button/flattr-badge-large.png)](https://flattr.com/submit/auto?user_id=lgxkqk&url=https://github.com/osiloke/gostore&title=gostore&language=golang&tags=github&category=software) 
