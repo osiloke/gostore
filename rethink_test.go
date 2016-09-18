@@ -240,3 +240,61 @@ func TestRethinkSaveAll(t *testing.T) {
 	})
 
 }
+
+func TestBatchFilterDelete(t *testing.T) {
+	// Only pass t into top-level Convey calls
+	Convey("Giving a rethink store", t, func() {
+		store.DeleteAll(collection)
+		Convey("After creating a things table", func() {
+			Convey("After inserting two rows", func() {
+				items := []interface{}{
+					map[string]interface{}{"id": "1", "name": "First Thing", "kind": "thing", "rating": 4.99},
+					map[string]interface{}{"id": "2", "name": "Second Thing", "kind": "thing", "rating": 4.99},
+				}
+				_, err := store.SaveAll(collection, items...)
+				if err != nil {
+					panic(err)
+				}
+				Convey("Both rows can be deleted using a batch delete filter", func() {
+					store.BatchFilterDelete(map[string]interface{}{"kind": "thing"}, collection, nil)
+					Convey("Now the store should be empty", func() {
+						count, err := store.FilterCount(map[string]interface{}{}, collection, nil)
+						if err != nil {
+							panic(err)
+						}
+						So(count, ShouldEqual, int64(0))
+					})
+				})
+			})
+		})
+	})
+}
+
+func TestNestedFilterBatchFilterDelete(t *testing.T) {
+	// Only pass t into top-level Convey calls
+	Convey("Giving a rethink store", t, func() {
+		store.DeleteAll(collection)
+		Convey("After creating a things table", func() {
+			Convey("After inserting two rows", func() {
+				items := []interface{}{
+					map[string]interface{}{"id": "1", "name": "First Thing", "kind": "thing", "rating": 4.99},
+					map[string]interface{}{"id": "2", "name": "First Something", "kind": "something", "rating": 4.99},
+				}
+				_, err := store.SaveAll(collection, items...)
+				if err != nil {
+					panic(err)
+				}
+				Convey("Both rows can be deleted using a batch delete filter", func() {
+					store.BatchFilterDelete(map[string]interface{}{"kind": "thing&something"}, collection, nil)
+					Convey("Now the store should be empty", func() {
+						count, err := store.FilterCount(map[string]interface{}{}, collection, nil)
+						if err != nil {
+							panic(err)
+						}
+						So(count, ShouldEqual, int64(0))
+					})
+				})
+			})
+		})
+	})
+}
