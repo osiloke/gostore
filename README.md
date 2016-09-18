@@ -42,7 +42,7 @@ $ go get github.com/osiloke/gostore
 
 ## Contact
 #### Developer/Company
-* Homepage: osiloke.com
+* Homepage: [osiloke.com](http://osiloke.com "Osiloke Blogs Sometimes")
 * e-mail: me@osiloke.com
 * Twitter: [@osiloke](https://twitter.com/osiloke "osiloke on twitter") 
 * Twitter (Again?): [@osilocks](https://twitter.com/osilocks "osiloke on twitter") 
