@@ -173,20 +173,40 @@ func parseFilter(args string) (dtarg interface{}) {
 // ><value>:performs a greater than query
 // <<value>:performs a less than query
 var filterOps TermOperators = TermOperators{
-	"~": func(args ...interface{}) r.Term {
-		vals := strings.Split(args[1].(string), "|")
-		baseTerm := args[0].(r.Term)
+	"=": func(args ...interface{}) r.Term {
+		var baseTerm r.Term
+		fieldName := args[0].(string)
+		vals := strings.Split(args[2].(string), "|")
 		if len(vals) > 0 {
-
+			baseTerm = r.Row.Field(fieldName).Eq(vals[0])
+			for _, v := range vals[1:] {
+				baseTerm = orTerm(baseTerm, r.Row.Field(fieldName).Eq(v))
+			}
+		} else {
+			baseTerm = baseTerm.Match(vals[0])
 		}
-		return baseTerm.Match(vals[0])
+		return baseTerm
+	},
+	"~": func(args ...interface{}) r.Term {
+		var baseTerm r.Term
+		fieldName := args[0].(string)
+		vals := strings.Split(args[2].(string), "|")
+		if len(vals) > 0 {
+			baseTerm = r.Row.Field(fieldName).Match(vals[0])
+			for _, v := range vals[1:] {
+				baseTerm = orTerm(baseTerm, r.Row.Field(fieldName).Match(v))
+			}
+		} else {
+			baseTerm = baseTerm.Match(vals[0])
+		}
+		return baseTerm
 	},
 	">": func(args ...interface{}) r.Term {
-		baseTerm := args[0].(r.Term)
+		baseTerm := args[1].(r.Term)
 		return baseTerm.Gt(parseFilter(args[1].(string)))
 	},
 	"<": func(args ...interface{}) r.Term {
-		baseTerm := args[0].(r.Term)
+		baseTerm := args[1].(r.Term)
 		return baseTerm.Lt(parseFilter(args[1].(string)))
 	},
 }
@@ -204,7 +224,7 @@ func (s RethinkStore) ParseFilterArgs(filter map[string]interface{}, indexes []s
 	var (
 		t r.Term = r.And(1)
 	)
-	logger.Debug("filterArgs", "filter", filter, "indexes", indexes, "opts", opts)
+	// logger.Debug("filterArgs", "filter", filter, "indexes", indexes, "opts", opts)
 	//TODO: Optimize this by passing indexes as well as field types
 	orGroup := map[string]r.Term{}
 	andGroup := map[string]r.Term{}
@@ -235,9 +255,9 @@ func (s RethinkStore) ParseFilterArgs(filter map[string]interface{}, indexes []s
 				if op, ok := filterOps[first]; ok {
 					tv := string([]rune(val)[start:])
 					if orGroupVal, ok := orGroup[orGroupName]; !ok {
-						orGroup[orGroupName] = op(r.Row.Field(k), tv)
+						orGroup[orGroupName] = op(k, r.Row.Field(k), tv)
 					} else {
-						orGroup[orGroupName] = orGroupVal.Or(op(r.Row.Field(k), tv))
+						orGroup[orGroupName] = orGroupVal.Or(op(k, r.Row.Field(k), tv))
 					}
 				} else {
 					if orGroupVal, ok := orGroup[orGroupName]; !ok {
@@ -264,9 +284,9 @@ func (s RethinkStore) ParseFilterArgs(filter map[string]interface{}, indexes []s
 				if op, ok := filterOps[first]; ok {
 					tv := string([]rune(val)[start:])
 					if andGroupVal, ok := andGroup[andGroupName]; !ok {
-						andGroup[andGroupName] = op(r.Row.Field(k), tv)
+						andGroup[andGroupName] = op(k, r.Row.Field(k), tv)
 					} else {
-						andGroup[andGroupName] = andGroupVal.And(op(r.Row.Field(k), tv))
+						andGroup[andGroupName] = andGroupVal.And(op(k, r.Row.Field(k), tv))
 					}
 				} else {
 					if andGroupVal, ok := andGroup[andGroupName]; !ok {
@@ -278,7 +298,7 @@ func (s RethinkStore) ParseFilterArgs(filter map[string]interface{}, indexes []s
 			} else {
 				if op, ok := filterOps[first]; ok {
 					tv := string([]rune(val)[start:])
-					t = t.And(op(r.Row.Field(k), tv))
+					t = t.And(op(k, r.Row.Field(k), tv))
 				} else {
 					t = t.And(r.Row.Field(k).Eq(v))
 				}
@@ -297,10 +317,12 @@ func (s RethinkStore) ParseFilterArgs(filter map[string]interface{}, indexes []s
 }
 
 func (s RethinkStore) All(count int, skip int, store string) (rrows ObjectRows, err error) {
-	result, err := r.DB(s.Database).Table(store).OrderBy(r.OrderByOpts{Index: r.Desc("id")}).Run(s.Session)
+	term := r.DB(s.Database).Table(store).OrderBy(r.OrderByOpts{Index: r.Desc("id")})
+	result, err := term.Run(s.Session)
 	if err != nil {
 		return
 	}
+	logger.Info(term.String())
 	rrows = RethinkRows{result}
 	return
 }
@@ -427,12 +449,12 @@ func (s RethinkStore) Replace(id string, store string, src interface{}) (err err
 
 func (s RethinkStore) Delete(id string, store string) (err error) {
 	_, err = r.DB(s.Database).Table(store).Get(id).Delete(r.DeleteOpts{Durability: "hard"}).RunWrite(s.Session)
-	logger.Debug("deleting " + id + " from " + store)
+	// logger.Debug("deleting " + id + " from " + store)
 	return
 }
 func (s RethinkStore) DeleteAll(store string) (err error) {
 	_, err = r.DB(s.Database).Table(store).Delete(r.DeleteOpts{Durability: "hard"}).RunWrite(s.Session)
-	logger.Debug("deleting all entried from " + store)
+	// logger.Debug("deleting all entried from " + store)
 	return
 }
 
@@ -462,7 +484,7 @@ func (s RethinkStore) GetByField(name, val, store string, dst interface{}) (err 
 }
 
 // http://stackoverflow.com/questions/19747207/rethinkdb-index-for-filter-orderby
-func (s RethinkStore) getRootTerm(store string, filter map[string]interface{}, opts ObjectStoreOptions) (rootTerm r.Term) {
+func (s RethinkStore) getRootTerm(store string, filter map[string]interface{}, opts ObjectStoreOptions, args ...interface{}) (rootTerm r.Term) {
 	rootTerm = r.DB(s.Database).Table(store)
 	var hasIndex = false
 	var hasMultiIndex = false
@@ -488,8 +510,10 @@ func (s RethinkStore) getRootTerm(store string, filter map[string]interface{}, o
 		}
 	}
 	if !hasIndex {
-		rootTerm = rootTerm.OrderBy(
-			r.OrderByOpts{Index: r.Desc("id")})
+		if len(args) == 0 {
+			rootTerm = rootTerm.OrderBy(
+				r.OrderByOpts{Index: r.Desc("id")})
+		}
 	} else {
 		if hasMultiIndex {
 			rootTerm = rootTerm.Between(
@@ -669,12 +693,14 @@ func (s RethinkStore) FilterDelete(filter map[string]interface{}, store string, 
 	return
 }
 func (s RethinkStore) BatchFilterDelete(filter map[string]interface{}, store string, opts ObjectStoreOptions) (err error) {
-
-	var rootTerm = s.getRootTerm(store, filter, opts)
-	_, err = rootTerm.Delete(r.DeleteOpts{Durability: "hard"}).RunWrite(s.Session)
+	term := s.getRootTerm(store, filter, opts, true)
+	var rootTerm = term.Delete(r.DeleteOpts{Durability: "hard"})
+	_, err = rootTerm.RunWrite(s.Session)
+	logger.Debug("BatchFilterDelete::done", "store", store, "query", rootTerm.String())
 	if err == r.ErrEmptyResult {
 		return ErrNotFound
 	}
+
 	return
 }
 
@@ -691,10 +717,10 @@ func (s RethinkStore) FilterCount(filter map[string]interface{}, store string, o
 		return 0, result.Err()
 	}
 	var cnt int64
+	// logger.Debug("FilterCount", "query", rootTerm.String(), "res", result)
 	if err = result.One(&cnt); err != nil {
 		return 0, ErrNotFound
 	}
-	logger.Debug("FilterCount", "query", rootTerm.String())
 	return cnt, nil
 }
 

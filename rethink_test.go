@@ -250,19 +250,23 @@ func TestBatchFilterDelete(t *testing.T) {
 				items := []interface{}{
 					map[string]interface{}{"id": "1", "name": "First Thing", "kind": "thing", "rating": 4.99},
 					map[string]interface{}{"id": "2", "name": "Second Thing", "kind": "thing", "rating": 4.99},
+					map[string]interface{}{"id": "3", "name": "First Something", "kind": "something", "rating": 4.99},
 				}
 				_, err := store.SaveAll(collection, items...)
 				if err != nil {
 					panic(err)
 				}
 				Convey("Both rows can be deleted using a batch delete filter", func() {
-					store.BatchFilterDelete(map[string]interface{}{"kind": "thing"}, collection, nil)
-					Convey("Now the store should be empty", func() {
-						count, err := store.FilterCount(map[string]interface{}{}, collection, nil)
+					err = store.BatchFilterDelete(map[string]interface{}{"kind": "thing"}, collection, nil)
+					if err != nil {
+						panic(err)
+					}
+					Convey("Now the store should contain only entries that dont match the filter", func() {
+						count, err := store.FilterCount(nil, collection, nil)
 						if err != nil {
 							panic(err)
 						}
-						So(count, ShouldEqual, int64(0))
+						So(count, ShouldEqual, int64(1))
 					})
 				})
 			})
@@ -270,12 +274,13 @@ func TestBatchFilterDelete(t *testing.T) {
 	})
 }
 
-func TestNestedFilterBatchFilterDelete(t *testing.T) {
+func TestOrFilterBatchFilterDelete(t *testing.T) {
 	// Only pass t into top-level Convey calls
 	Convey("Giving a rethink store", t, func() {
+		var collection string = "things"
 		store.DeleteAll(collection)
 		Convey("After creating a things table", func() {
-			Convey("After inserting two rows", func() {
+			Convey("After inserting two rows of different kinds", func() {
 				items := []interface{}{
 					map[string]interface{}{"id": "1", "name": "First Thing", "kind": "thing", "rating": 4.99},
 					map[string]interface{}{"id": "2", "name": "First Something", "kind": "something", "rating": 4.99},
@@ -284,10 +289,10 @@ func TestNestedFilterBatchFilterDelete(t *testing.T) {
 				if err != nil {
 					panic(err)
 				}
-				Convey("Both rows can be deleted using a batch delete filter", func() {
-					store.BatchFilterDelete(map[string]interface{}{"kind": "thing&something"}, collection, nil)
+				Convey("Both rows can be deleted using a batch delete filter kind: =firstkind|secondkind ", func() {
+					store.BatchFilterDelete(map[string]interface{}{"kind": "=thing|something"}, collection, nil)
 					Convey("Now the store should be empty", func() {
-						count, err := store.FilterCount(map[string]interface{}{}, collection, nil)
+						count, err := store.FilterCount(nil, collection, nil)
 						if err != nil {
 							panic(err)
 						}
