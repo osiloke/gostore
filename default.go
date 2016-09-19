@@ -70,7 +70,7 @@ type ObjectStore interface {
 	FilterGet(filter map[string]interface{}, store string, dst interface{}, opts ObjectStoreOptions) error
 	FilterGetAll(filter map[string]interface{}, count int, skip int, store string, opts ObjectStoreOptions) (ObjectRows, error)
 	FilterDelete(filter map[string]interface{}, store string, opts ObjectStoreOptions) error
-	BatchFilterDelete(filter map[string]interface{}, store string, opts ObjectStoreOptions) error
+	BatchFilterDelete(filter []map[string]interface{}, store string, opts ObjectStoreOptions) error
 	FilterCount(filter map[string]interface{}, store string, opts ObjectStoreOptions) (int64, error)
 
 	//Misc gets

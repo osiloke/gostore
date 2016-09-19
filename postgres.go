@@ -332,7 +332,7 @@ func (s PostgresObjectStore) FilterGetAll(filter map[string]interface{}, count i
 func (s PostgresObjectStore) FilterDelete(filter map[string]interface{}, store string, opts ObjectStoreOptions) (err error) {
 	return errors.New("Not Implemented")
 }
-func (s PostgresObjectStore) BatchFilterDelete(filter map[string]interface{}, store string, opts ObjectStoreOptions) error {
+func (s PostgresObjectStore) BatchFilterDelete(filter []map[string]interface{}, store string, opts ObjectStoreOptions) error {
 	return ErrNotImplemented
 }
 func (s PostgresObjectStore) FilterCount(filter map[string]interface{}, store string, opts ObjectStoreOptions) (int64, error) {

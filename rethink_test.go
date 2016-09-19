@@ -241,7 +241,7 @@ func TestRethinkSaveAll(t *testing.T) {
 
 }
 
-func TestBatchFilterDelete(t *testing.T) {
+func TestFilterDelete(t *testing.T) {
 	// Only pass t into top-level Convey calls
 	Convey("Giving a rethink store", t, func() {
 		store.DeleteAll(collection)
@@ -257,7 +257,7 @@ func TestBatchFilterDelete(t *testing.T) {
 					panic(err)
 				}
 				Convey("Both rows can be deleted using a batch delete filter", func() {
-					err = store.BatchFilterDelete(map[string]interface{}{"kind": "thing"}, collection, nil)
+					err = store.FilterDelete(map[string]interface{}{"kind": "thing"}, collection, nil)
 					if err != nil {
 						panic(err)
 					}
@@ -274,7 +274,7 @@ func TestBatchFilterDelete(t *testing.T) {
 	})
 }
 
-func TestOrFilterBatchFilterDelete(t *testing.T) {
+func TestOrFilterDelete(t *testing.T) {
 	// Only pass t into top-level Convey calls
 	Convey("Giving a rethink store", t, func() {
 		var collection string = "things"
@@ -290,7 +290,7 @@ func TestOrFilterBatchFilterDelete(t *testing.T) {
 					panic(err)
 				}
 				Convey("Both rows can be deleted using a batch delete filter kind: =firstkind|secondkind ", func() {
-					store.BatchFilterDelete(map[string]interface{}{"kind": "=thing|something"}, collection, nil)
+					store.FilterDelete(map[string]interface{}{"kind": "=thing|something"}, collection, nil)
 					Convey("Now the store should be empty", func() {
 						count, err := store.FilterCount(nil, collection, nil)
 						if err != nil {
@@ -303,3 +303,102 @@ func TestOrFilterBatchFilterDelete(t *testing.T) {
 		})
 	})
 }
+
+func TestParseFilterOpsOrEqTerm(t *testing.T) {
+	Convey("Given a filter value", t, func() {
+		key := "kind"
+		val := "=thing|fish"
+		Convey("Determine what conditions to perform on the val", func() {
+			t := store.parseFilterOpsTerm(key, val)
+			So(t.String(), ShouldEqual, `r.Row.Field("kind").Eq("thing").Or(r.Row.Field("kind").Eq("fish"))`)
+
+		})
+
+	})
+
+}
+func TestParseFilterOpsOrMatchTerm(t *testing.T) {
+	Convey("Given a filter value", t, func() {
+		key := "kind"
+		val := "~thing|fish"
+		Convey("Determine what conditions to perform on the val", func() {
+			t := store.parseFilterOpsTerm(key, val)
+			So(t.String(), ShouldEqual, `r.Row.Field("kind").Match("thing").Or(r.Row.Field("kind").Match("fish"))`)
+
+		})
+
+	})
+
+}
+func TestTransformFilter(t *testing.T) {
+	Convey("Given a filter", t, func() {
+		/*
+			food is either amala or ewedu and place is lagos
+			or
+			beverage is coke and server is olu
+		*/
+
+		filter := map[string]interface{}{
+			"or": []interface{}{
+				map[string]interface{}{
+					"food": "~amala|ewedu",
+					// "place": "lagos",
+				},
+				map[string]interface{}{
+					"beverage": "coke",
+					// "server":   "olu",
+				},
+			},
+		}
+		Convey("figure out rethink conditions", func() {
+			r := r.And(1)
+			term := store.transformFilter(r, filter)
+			So(term.String(), ShouldEqual, `r.And(1).Or(r.And(1).And(r.Row.Field("food").Match("amala").Or(r.Row.Field("food").Match("ewedu"))), r.And(1).And(r.Row.Field("beverage").Eq("coke")))`)
+		})
+	})
+}
+
+// func TestBatchFilterDelete(t *testing.T) {
+// 	// Only pass t into top-level Convey calls
+// 	Convey("Giving a rethink store", t, func() {
+// 		store.DeleteAll(collection)
+// 		Convey("After creating a things table", func() {
+// 			Convey("After inserting two rows", func() {
+// 				items := []interface{}{
+// 					map[string]interface{}{"id": "1", "name": "First Thing", "kind": "thing", "rating": 4.99},
+// 					map[string]interface{}{"id": "2", "name": "Second Thing", "kind": "thing", "rating": 4.99},
+// 					map[string]interface{}{"id": "3", "name": "First Something", "kind": "something", "rating": 4.99},
+// 				}
+// 				_, err := store.SaveAll(collection, items...)
+// 				if err != nil {
+// 					panic(err)
+// 				}
+// 				Convey("We can delete two rows using two filters", func() {
+// 					// (kind=thing&id=1)&()
+// 					err = store.BatchFilterDelete([]map[string]interface{}{
+// 						{
+// 							"kind": "thing",
+// 							"id":   "1",
+// 						},
+// 						{
+// 							"or": map[string]interface{}{
+// 								"kind": "something",
+// 								"id":   "2",
+// 							},
+// 						},
+// 					}, collection, nil)
+// 					if err != nil {
+// 						panic(err)
+// 					}
+// 					Convey("Now the store should contain only entries that dont match the filter", func() {
+// 						count, err := store.FilterCount(nil, collection, nil)
+// 						if err != nil {
+// 							panic(err)
+// 						}
+// 						So(count, ShouldEqual, int64(1))
+// 					})
+// 				})
+// 			})
+// 		})
+// 	})
+// }

@@ -78,11 +78,11 @@ func (_m *ObjectStore) AllWithinRange(filter map[string]interface{}, count int, 
 }
 
 // BatchFilterDelete provides a mock function with given fields: filter, store, opts
-func (_m *ObjectStore) BatchFilterDelete(filter map[string]interface{}, store string, opts gostore.ObjectStoreOptions) error {
+func (_m *ObjectStore) BatchFilterDelete(filter []map[string]interface{}, store string, opts gostore.ObjectStoreOptions) error {
 	ret := _m.Called(filter, store, opts)
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(map[string]interface{}, string, gostore.ObjectStoreOptions) error); ok {
+	if rf, ok := ret.Get(0).(func([]map[string]interface{}, string, gostore.ObjectStoreOptions) error); ok {
 		r0 = rf(filter, store, opts)
 	} else {
 		r0 = ret.Error(0)
