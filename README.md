@@ -50,6 +50,7 @@ Api
 * 	CreateTable
 * 	GetStore
 *	Stats
+*	Close
 
 ####Retrieval
 *	All
@@ -81,7 +82,6 @@ Api
 *	FilterCounts
 *	GetByField
 *	GetByFieldsByField
-*	Close()
 
 ## Contributors
 
