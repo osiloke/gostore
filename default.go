@@ -1,7 +1,7 @@
 package gostore
 
 /**
-TODO: Define callbacks and also pass context
+Store is deprecated
 */
 type Store interface {
 	Get(key []byte, resource string) ([][]byte, error)
@@ -35,6 +35,7 @@ func (d DefaultObjectStoreOptions) GetIndexes() map[string][]string {
 	return d.Index
 }
 
+//ObjectStore represents all api common to all database implementations
 type ObjectStore interface {
 	//Management Api
 	CreateDatabase() error
