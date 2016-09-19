@@ -1,6 +1,7 @@
 GoStore is your applications data swiss knife
 ======
 
+[![Build Status](https://travis-ci.org/osiloke/gostore.png)](https://travis-ci.org/osiloke/gostore)
 [![GoDoc](https://godoc.org/github.com/osiloke/gostore?status.svg)](http://godoc.org/github.com/osiloke/gostore)
 
 GoStore is an application storage tool used to speed up your application development. It makes it easier to mix and match existing nosql/some rdbms* databases like RethinkDb, boltdb, leveldb, riak, mongodb, postgres* etc into your application.
@@ -46,14 +47,15 @@ Api
 
 ####Database Operations
 
-*	CreateDatabase
-* 	CreateTable
-* 	GetStore
-*	Stats
-*	Close
+*	CreateDatabase - Creates the database
+* 	CreateTable - Creates a table/row/container/collection in a database
+* 	GetStore - This returns a reference to the stores session
+*	Stats - Gets some stats on the database
+*	Close - Closes the database, essentially closing the session
 
 ####Retrieval
-*	All
+
+*	All 
 *	AllCursor
 *	AllWithinRange
 *	Get
