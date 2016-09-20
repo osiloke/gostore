@@ -45,35 +45,35 @@ Gostore tries to simplify your database needs by providing simple specific highl
 #####Using a store
 
 ```go
-	import (
-		"github.com/osiloke/gostore"
-	)
-	//Create a rethinkdb backed store called app
-	store, _ := gostore.NewRethinkObjectStoreAndSession("localhost:28015", "app")
+import (
+	"github.com/osiloke/gostore"
+)
+//Create a rethinkdb backed store called app
+store, _ := gostore.NewRethinkObjectStoreAndSession("localhost:28015", "app")
 
-	//Now create the db
-	store.CreateDatabase()
+//Now create the db
+store.CreateDatabase()
 
-	//Create the table you want to use, you can pass an optional schema which is used to some
-	//advanced stuff
-	store.CreateTable("things", nil)
+//Create the table you want to use, you can pass an optional schema 
+//to do some advanced stuff
+store.CreateTable("things", nil)
 
-	//now for profit, tables are accessed by name
+//now for profit, tables are accessed by name
 
-	//Save a thing which returns the stored key
-	key, _ := store.Save("things", map[string]interface{}{"name":"one thing", "kind": "table"})
+//Save a thing which returns the stored key
+key, _ := store.Save("things", map[string]interface{}{"name":"one thing", "kind": "table"})
 
-	//Or just save all things
-	keys, _ := store.SaveAll("things", []interface{}{
-		map[string]interface{}{"name": "First Thing", "kind": "chair"},
-		map[string]interface{}{"name": "Second Thing", "kind": "cup"},
-	})
-	keys = append(keys, key)
-	//Now we can retrieve a thing
-	var thing map[string]interface{}
-	store.Get(key, "things", &thing)
+//Or just save all things
+keys, _ := store.SaveAll("things", []interface{}{
+	map[string]interface{}{"name": "First Thing", "kind": "chair"},
+	map[string]interface{}{"name": "Second Thing", "kind": "cup"},
+})
+keys = append(keys, key)
+//Now we can retrieve a thing
+var thing map[string]interface{}
+store.Get(key, "things", &thing)
 
-	println(thing)
+println(thing)
 
 ```
 
