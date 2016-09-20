@@ -370,6 +370,7 @@ func TestTransformFilter(t *testing.T) {
 		Convey("figure out rethink conditions", func() {
 			term := store.transformFilter(nil, filter)
 			So(term.String(), ShouldBeIn, []string{
+				`r.Or(r.Row.Field("food").Match("amala").Or(r.Row.Field("food").Match("ewedu")).And(r.Row.Field("place").Eq("lagos")), r.Row.Field("server").Eq("olu").And(r.Row.Field("beverage").Eq("coke")))`,
 				`r.Or(r.Row.Field("food").Match("amala").Or(r.Row.Field("food").Match("ewedu")).And(r.Row.Field("place").Eq("lagos")), r.Row.Field("beverage").Eq("coke").And(r.Row.Field("server").Eq("olu")))`,
 			})
 		})
@@ -413,7 +414,7 @@ func TestGetRootTermWithIndexes(t *testing.T) {
 					`r.DB("gostore_test").Table("things").Between(["thing", r.MinVal()], ["thing", r.MaxVal()], index="kind_id", right_bound="closed").OrderBy(index=r.Desc("kind_id")).Filter(func(var_12 r.Term) r.Term { return r.Row.Field("kind").Eq("thing").And(r.Row.Field("id").Eq("1")) })`,
 					`r.DB("gostore_test").Table("things").Between(["thing", r.MinVal()], ["thing", r.MaxVal()], right_bound="closed", index="kind_id").OrderBy(index=r.Desc("kind_id")).Filter(func(var_12 r.Term) r.Term { return r.Row.Field("id").Eq("1").And(r.Row.Field("kind").Eq("thing")) })`,
 					`r.DB("gostore_test").Table("things").Between(["thing", r.MinVal()], ["thing", r.MaxVal()], index="kind_id", right_bound="closed").OrderBy(index=r.Desc("kind_id")).Filter(func(var_12 r.Term) r.Term { return r.Row.Field("id").Eq("1").And(r.Row.Field("kind").Eq("thing")) })`,
-					// `r.DB("gostore_test").Table("things").GetAll("1", index="id").Filter(func(var_12 r.Term) r.Term { return r.Row.Field("id").Eq("1").And(r.Row.Field("kind").Eq("thing")) })`,
+					`r.DB("gostore_test").Table("things").GetAll("1", index="id").Filter(func(var_12 r.Term) r.Term { return r.Row.Field("id").Eq("1").And(r.Row.Field("kind").Eq("thing")) })`,
 				})
 			})
 		})

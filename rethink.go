@@ -390,6 +390,7 @@ func (s RethinkStore) filterTerm(filter map[string]interface{}, opts ObjectStore
 // }
 
 // http://stackoverflow.com/questions/19747207/rethinkdb-index-for-filter-orderby
+//TODO: fix index selection, it should favour compound indexes more
 func (s RethinkStore) getRootTerm(store string, filter map[string]interface{}, opts ObjectStoreOptions, args ...interface{}) (rootTerm r.Term) {
 	rootTerm = r.DB(s.Database).Table(store)
 	var hasIndex = false
