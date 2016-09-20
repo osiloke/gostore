@@ -413,10 +413,14 @@ func TestGetRootTermWithIndexes(t *testing.T) {
 				term := store.getRootTerm("things", filter, opts)
 
 				So(term.String(), ShouldBeIn, []string{
+					`r.DB("gostore_test").Table("things").Between(["thing", r.MinVal()], ["thing", r.MaxVal()], right_bound="closed", index="kind_id").OrderBy(index=r.Desc("kind_id")).Filter(func(var_12 r.Term) r.Term { return r.Row.Field("kind").Eq("thing").And(r.Row.Field("id").Eq("1")) })`,
 					`r.DB("gostore_test").Table("things").Between(["thing", r.MinVal()], ["thing", r.MaxVal()], index="kind_id", right_bound="closed").OrderBy(index=r.Desc("kind_id")).Filter(func(var_12 r.Term) r.Term { return r.Row.Field("kind").Eq("thing").And(r.Row.Field("id").Eq("1")) })`,
 					`r.DB("gostore_test").Table("things").Between(["thing", r.MinVal()], ["thing", r.MaxVal()], right_bound="closed", index="kind_id").OrderBy(index=r.Desc("kind_id")).Filter(func(var_12 r.Term) r.Term { return r.Row.Field("id").Eq("1").And(r.Row.Field("kind").Eq("thing")) })`,
 					`r.DB("gostore_test").Table("things").Between(["thing", r.MinVal()], ["thing", r.MaxVal()], index="kind_id", right_bound="closed").OrderBy(index=r.Desc("kind_id")).Filter(func(var_12 r.Term) r.Term { return r.Row.Field("id").Eq("1").And(r.Row.Field("kind").Eq("thing")) })`,
 					`r.DB("gostore_test").Table("things").GetAll("1", index="id").Filter(func(var_12 r.Term) r.Term { return r.Row.Field("id").Eq("1").And(r.Row.Field("kind").Eq("thing")) })`,
+					`r.DB("gostore_test").Table("things").GetAll("1", index="id").Filter(func(var_12 r.Term) r.Term { return r.Row.Field("id").Eq("1").And(r.Row.Field("kind").Eq("thing")) })`,
+					`r.DB("gostore_test").Table("things").GetAll("thing", index="kind").Filter(func(var_12 r.Term) r.Term { return r.Row.Field("kind").Eq("thing").And(r.Row.Field("id").Eq("1")) })`,
+					`r.DB("gostore_test").Table("things").GetAll("thing", index="kind").Filter(func(var_12 r.Term) r.Term { return r.Row.Field("id").Eq("1").And(r.Row.Field("kind").Eq("thing")) })`,
 				})
 			})
 		})
