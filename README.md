@@ -17,8 +17,7 @@ The idea is to standardize high level database operations that are common to eve
 - Application level filtering for databases that dont support filtering (BoltDB)
 - Semantic easily understandable api to perform application store actions
 
-NOTE:
-Still being developed, so the api will change, but don't be afraid to post an issue. I use this in an existing project anyway.
+>Still being developed, so the api will change, but don't be afraid to post an issue. I use this in an existing project anyway.
 
 #### Supported Databases
 * [RethinkDB](https://github.com/rethinkdb/rethinkdb) - Fully Supported
