@@ -457,6 +457,7 @@ func TestGetRootTermWithIndexes(t *testing.T) {
 					`r.DB("gostore_test").Table("things").Between(["thing", r.MinVal()], ["thing", r.MaxVal()], index="kind_id", right_bound="closed").OrderBy(index=r.Desc("kind_id")).Filter(func(var_12 r.Term) r.Term { return r.Row.Field("kind").Eq("thing").And(r.Row.Field("id").Eq("1")) })`,
 					`r.DB("gostore_test").Table("things").Between(["thing", r.MinVal()], ["thing", r.MaxVal()], right_bound="closed", index="kind_id").OrderBy(index=r.Desc("kind_id")).Filter(func(var_12 r.Term) r.Term { return r.Row.Field("id").Eq("1").And(r.Row.Field("kind").Eq("thing")) })`,
 					`r.DB("gostore_test").Table("things").Between(["thing", r.MinVal()], ["thing", r.MaxVal()], index="kind_id", right_bound="closed").OrderBy(index=r.Desc("kind_id")).Filter(func(var_12 r.Term) r.Term { return r.Row.Field("id").Eq("1").And(r.Row.Field("kind").Eq("thing")) })`,
+					`r.DB("gostore_test").Table("things").GetAll("1", index="id").Filter(func(var_12 r.Term) r.Term { return r.Row.Field("kind").Eq("thing").And(r.Row.Field("id").Eq("1")) })`,
 					`r.DB("gostore_test").Table("things").GetAll("1", index="id").Filter(func(var_12 r.Term) r.Term { return r.Row.Field("id").Eq("1").And(r.Row.Field("kind").Eq("thing")) })`,
 					`r.DB("gostore_test").Table("things").GetAll("1", index="id").Filter(func(var_12 r.Term) r.Term { return r.Row.Field("id").Eq("1").And(r.Row.Field("kind").Eq("thing")) })`,
 					`r.DB("gostore_test").Table("things").GetAll("thing", index="kind").Filter(func(var_12 r.Term) r.Term { return r.Row.Field("kind").Eq("thing").And(r.Row.Field("id").Eq("1")) })`,
@@ -477,20 +478,46 @@ func TestBatchFilterDelete(t *testing.T) {
 	Convey("Giving a rethink store", t, func() {
 		mock := r.NewMock()
 		mock.On(r.DB("gostore_test").Table("things").Insert(items, r.InsertOpts{Durability: "hard"})).Return(r.WriteResponse{GeneratedKeys: expectedKeys}, nil)
-		mock.On(r.Union(
-			r.DB("gostore_test").Table("things").OrderBy(r.OrderByOpts{Index: r.Desc("id")}).Filter(r.Row.Field("id").Eq("1").And(r.Row.Field("kind").Eq("thing"))),
-			r.DB("gostore_test").Table("things").OrderBy(r.OrderByOpts{Index: r.Desc("id")}).Filter(r.Row.Field("kind").Eq("something").And(r.Row.Field("id").Eq("2")))).Delete(),
-		).Return(r.WriteResponse{Deleted: 2}, nil)
 		/*
 			r.union(
 				r.db("gostore_test").table("things").orderBy({index: r.desc("id")}).filter(function(row){return row("kind").eq("thing").and(row("id").eq("1"))}),
 				r.db("gostore_test").table("things").orderBy({index: r.desc("id")}).filter(function(row){return row("kind").eq("something").and(row("id").eq("2"))})
 			).delete()
 		*/
+		mock.On(r.Union(
+			r.DB("gostore_test").Table("things").OrderBy(r.OrderByOpts{Index: r.Desc("id")}).Filter(r.Row.Field("id").Eq("1").And(r.Row.Field("kind").Eq("thing"))),
+			r.DB("gostore_test").Table("things").OrderBy(r.OrderByOpts{Index: r.Desc("id")}).Filter(r.Row.Field("kind").Eq("something").And(r.Row.Field("id").Eq("2"))),
+		).Delete(),
+		).Return(r.WriteResponse{Deleted: 2}, nil)
+
+		mock.On(r.Union(
+			r.DB("gostore_test").Table("things").OrderBy(r.OrderByOpts{Index: r.Desc("id")}).Filter(r.Row.Field("kind").Eq("something").And(r.Row.Field("id").Eq("2"))),
+			r.DB("gostore_test").Table("things").OrderBy(r.OrderByOpts{Index: r.Desc("id")}).Filter(r.Row.Field("id").Eq("1").And(r.Row.Field("kind").Eq("thing"))),
+		).Delete(),
+		).Return(r.WriteResponse{Deleted: 2}, nil)
 
 		mock.On(r.Union(
 			r.DB("gostore_test").Table("things").OrderBy(r.OrderByOpts{Index: r.Desc("id")}).Filter(r.Row.Field("kind").Eq("thing").And(r.Row.Field("id").Eq("1"))),
-			r.DB("gostore_test").Table("things").OrderBy(r.OrderByOpts{Index: r.Desc("id")}).Filter(r.Row.Field("kind").Eq("something").And(r.Row.Field("id").Eq("2")))).Delete(),
+			r.DB("gostore_test").Table("things").OrderBy(r.OrderByOpts{Index: r.Desc("id")}).Filter(r.Row.Field("kind").Eq("something").And(r.Row.Field("id").Eq("2"))),
+		).Delete(),
+		).Return(r.WriteResponse{Deleted: 2}, nil)
+
+		mock.On(r.Union(
+			r.DB("gostore_test").Table("things").OrderBy(r.OrderByOpts{Index: r.Desc("id")}).Filter(r.Row.Field("kind").Eq("something").And(r.Row.Field("id").Eq("2"))),
+			r.DB("gostore_test").Table("things").OrderBy(r.OrderByOpts{Index: r.Desc("id")}).Filter(r.Row.Field("kind").Eq("thing").And(r.Row.Field("id").Eq("1"))),
+		).Delete(),
+		).Return(r.WriteResponse{Deleted: 2}, nil)
+
+		mock.On(r.Union(
+			r.DB("gostore_test").Table("things").OrderBy(r.OrderByOpts{Index: r.Desc("id")}).Filter(r.Row.Field("kind").Eq("thing").And(r.Row.Field("id").Eq("1"))),
+			r.DB("gostore_test").Table("things").OrderBy(r.OrderByOpts{Index: r.Desc("id")}).Filter(r.Row.Field("id").Eq("2").And(r.Row.Field("kind").Eq("something"))),
+		).Delete(),
+		).Return(r.WriteResponse{Deleted: 2}, nil)
+
+		mock.On(r.Union(
+			r.DB("gostore_test").Table("things").OrderBy(r.OrderByOpts{Index: r.Desc("id")}).Filter(r.Row.Field("id").Eq("2").And(r.Row.Field("kind").Eq("something"))),
+			r.DB("gostore_test").Table("things").OrderBy(r.OrderByOpts{Index: r.Desc("id")}).Filter(r.Row.Field("kind").Eq("thing").And(r.Row.Field("id").Eq("1"))),
+		).Delete(),
 		).Return(r.WriteResponse{Deleted: 2}, nil)
 
 		mock.On(r.DB("gostore_test").Table("things").OrderBy(r.OrderByOpts{Index: r.Desc("id")}).Count()).Return(1, nil)
