@@ -520,6 +520,16 @@ func TestBatchFilterDelete(t *testing.T) {
 		).Delete(),
 		).Return(r.WriteResponse{Deleted: 2}, nil)
 
+		mock.On(r.Union(
+			r.DB("gostore_test").Table("things").OrderBy(r.OrderByOpts{Index: r.Desc("id")}).Filter(r.Row.Field("id").Eq("1").And(r.Row.Field("kind").Eq("thing"))),
+			r.DB("gostore_test").Table("things").OrderBy(r.OrderByOpts{Index: r.Desc("id")}).Filter(r.Row.Field("id").Eq("2").And(r.Row.Field("kind").Eq("something"))),
+		).Delete()).Return(r.WriteResponse{Deleted: 2}, nil)
+
+		mock.On(r.Union(
+			r.DB("gostore_test").Table("things").OrderBy(r.OrderByOpts{Index: r.Desc("id")}).Filter(r.Row.Field("id").Eq("2").And(r.Row.Field("kind").Eq("something"))),
+			r.DB("gostore_test").Table("things").OrderBy(r.OrderByOpts{Index: r.Desc("id")}).Filter(r.Row.Field("id").Eq("1").And(r.Row.Field("kind").Eq("thing"))),
+		).Delete()).Return(r.WriteResponse{Deleted: 2}, nil)
+
 		mock.On(r.DB("gostore_test").Table("things").OrderBy(r.OrderByOpts{Index: r.Desc("id")}).Count()).Return(1, nil)
 
 		store := RethinkStore{mock, "gostore_test"}
