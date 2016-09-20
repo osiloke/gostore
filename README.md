@@ -83,7 +83,7 @@ Api
 ####Database Operations
 
 *	CreateDatabase - Creates the database
-* 	CreateTable - Creates a table/row/container/collection in a database
+* 	CreateTable - Creates a table/container/collection in a database
 * 	GetStore - This returns a reference to the stores session
 *	Stats - Gets some stats on the database
 *	Close - Closes the database, essentially closing the session
@@ -114,7 +114,7 @@ Api
 *	FilterReplace
 *	FilterGet
 *	FilterGetAll
-*	FilterDeleter
+*	FilterDelete
 *	BatchFilterDelete
 *	FilterCounts
 *	GetByField
