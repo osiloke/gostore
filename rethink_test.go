@@ -370,6 +370,8 @@ func TestTransformFilter(t *testing.T) {
 		Convey("figure out rethink conditions", func() {
 			term := store.transformFilter(nil, filter)
 			So(term.String(), ShouldBeIn, []string{
+				`r.Or(r.Row.Field("place").Eq("lagos").And(r.Row.Field("food").Match("amala").Or(r.Row.Field("food").Match("ewedu"))), r.Row.Field("server").Eq("olu").And(r.Row.Field("beverage").Eq("coke")))`,
+				`r.Or(r.Row.Field("place").Eq("lagos").And(r.Row.Field("food").Match("amala").Or(r.Row.Field("food").Match("ewedu"))), r.Row.Field("beverage").Eq("coke").And(r.Row.Field("server").Eq("olu")))`,
 				`r.Or(r.Row.Field("food").Match("amala").Or(r.Row.Field("food").Match("ewedu")).And(r.Row.Field("place").Eq("lagos")), r.Row.Field("server").Eq("olu").And(r.Row.Field("beverage").Eq("coke")))`,
 				`r.Or(r.Row.Field("food").Match("amala").Or(r.Row.Field("food").Match("ewedu")).And(r.Row.Field("place").Eq("lagos")), r.Row.Field("beverage").Eq("coke").And(r.Row.Field("server").Eq("olu")))`,
 			})
