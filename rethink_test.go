@@ -439,11 +439,18 @@ func TestBatchFilterDelete(t *testing.T) {
 	Convey("Giving a rethink store", t, func() {
 		mock := r.NewMock()
 		mock.On(r.DB("gostore_test").Table("things").Insert(items, r.InsertOpts{Durability: "hard"})).Return(r.WriteResponse{GeneratedKeys: expectedKeys}, nil)
-		mock.On(r.DB("gostore_test").Table("things").Union(
+		mock.On(r.Union(
 			r.DB("gostore_test").Table("things").OrderBy(r.OrderByOpts{Index: r.Desc("id")}).Filter(r.Row.Field("id").Eq("1").And(r.Row.Field("kind").Eq("thing"))),
 			r.DB("gostore_test").Table("things").OrderBy(r.OrderByOpts{Index: r.Desc("id")}).Filter(r.Row.Field("kind").Eq("something").And(r.Row.Field("id").Eq("2")))).Delete(),
 		).Return(r.WriteResponse{Deleted: 2}, nil)
-		mock.On(r.DB("gostore_test").Table("things").Union(
+		/*
+			r.union(
+				r.db("gostore_test").table("things").orderBy({index: r.desc("id")}).filter(function(row){return row("kind").eq("thing").and(row("id").eq("1"))}),
+				r.db("gostore_test").table("things").orderBy({index: r.desc("id")}).filter(function(row){return row("kind").eq("something").and(row("id").eq("2"))})
+			).delete()
+		*/
+
+		mock.On(r.Union(
 			r.DB("gostore_test").Table("things").OrderBy(r.OrderByOpts{Index: r.Desc("id")}).Filter(r.Row.Field("kind").Eq("thing").And(r.Row.Field("id").Eq("1"))),
 			r.DB("gostore_test").Table("things").OrderBy(r.OrderByOpts{Index: r.Desc("id")}).Filter(r.Row.Field("kind").Eq("something").And(r.Row.Field("id").Eq("2")))).Delete(),
 		).Return(r.WriteResponse{Deleted: 2}, nil)

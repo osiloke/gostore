@@ -772,7 +772,7 @@ func (s RethinkStore) BatchFilterDelete(filter []map[string]interface{}, store s
 		var term = s.getRootTerm(store, f, opts)
 		terms[i] = term
 	}
-	rootTerm := r.DB(s.Database).Table(store).Union(terms...).Delete()
+	rootTerm := r.Union(terms...).Delete()
 	_, err = rootTerm.RunWrite(s.Session)
 	if err == r.ErrEmptyResult {
 		return ErrNotFound
