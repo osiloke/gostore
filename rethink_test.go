@@ -341,19 +341,18 @@ func TestTransformFilter(t *testing.T) {
 		filter := map[string]interface{}{
 			"or": []interface{}{
 				map[string]interface{}{
-					"food": "~amala|ewedu",
-					// "place": "lagos",
+					"food":  "~amala|ewedu",
+					"place": "lagos",
 				},
 				map[string]interface{}{
 					"beverage": "coke",
-					// "server":   "olu",
+					"server":   "olu",
 				},
 			},
 		}
 		Convey("figure out rethink conditions", func() {
-			r := r.And(1)
-			term := store.transformFilter(r, filter)
-			So(term.String(), ShouldEqual, `r.And(1).Or(r.And(1).And(r.Row.Field("food").Match("amala").Or(r.Row.Field("food").Match("ewedu"))), r.And(1).And(r.Row.Field("beverage").Eq("coke")))`)
+			term := store.transformFilter(nil, filter)
+			So(term.String(), ShouldEqual, `r.Or(r.Row.Field("food").Match("amala").Or(r.Row.Field("food").Match("ewedu")).And(r.Row.Field("place").Eq("lagos")), r.Row.Field("beverage").Eq("coke").And(r.Row.Field("server").Eq("olu")))`)
 		})
 	})
 }

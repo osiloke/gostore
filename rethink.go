@@ -233,38 +233,42 @@ func (s RethinkStore) parseFilterOpsTerm(key, val string) (t r.Term) {
 	}
 	return
 }
-func (s RethinkStore) transformFilter(rootTerm r.Term, filter map[string]interface{}) (f r.Term) {
-
-	f = rootTerm
+func (s RethinkStore) transformFilter(rootTerm interface{}, filter map[string]interface{}) (f r.Term) {
+	var _root interface{}
+	if rootTerm != nil {
+		_root = rootTerm
+		f = _root.(r.Term)
+	}
 	for fieldKey, fieldVal := range filter {
 		if subFilter, ok := fieldVal.(map[string]interface{}); ok {
 			if fieldKey == "or" {
-				f = f.Or(s.transformFilter(r.And(1), subFilter))
+				f = f.Or(s.transformFilter(rootTerm, subFilter))
 			} else {
-				f = f.And(s.transformFilter(r.And(1), subFilter))
+				f = f.And(s.transformFilter(rootTerm, subFilter))
 			}
 		} else if subFilterGroup, ok := fieldVal.([]interface{}); ok {
 
 			terms := make([]interface{}, 0, len(subFilterGroup))
 			for _, element := range subFilterGroup {
-				terms = append(terms, s.transformFilter(r.And(1), element.(map[string]interface{})))
+				terms = append(terms, s.transformFilter(nil, element.(map[string]interface{})))
 			}
 			if fieldKey == "or" {
-
 				f = f.Or(terms...)
 			} else {
 
 				f = f.And(terms...)
 			}
 		} else {
-			f = f.And(s.parseFilterOpsTerm(fieldKey, fieldVal.(string)))
+			if _root != nil {
+				f = f.And(s.parseFilterOpsTerm(fieldKey, fieldVal.(string)))
+			} else {
+				_root = s.parseFilterOpsTerm(fieldKey, fieldVal.(string))
+				f = _root.(r.Term)
+			}
 		}
 	}
 
 	return
-	// if strings.HasPrefix(k, "|") {
-
-	// }
 }
 func (s RethinkStore) filterTerm(filter map[string]interface{}, opts ObjectStoreOptions, args ...interface{}) (filterTerm r.Term) {
 	// var hasIndex = false

@@ -42,6 +42,41 @@ $ go get github.com/osiloke/gostore
 
 Gostore tries to simplify your database needs by providing simple specific highlevel database actions which are common to most applications. These actions form the api and are listed below
 
+#####Using a store
+
+```go
+	import (
+		"github.com/osiloke/gostore"
+	)
+	//Create a rethinkdb backed store called app
+	store, _ := gostore.NewRethinkObjectStoreAndSession("localhost:28015", "app")
+
+	//Now create the db
+	store.CreateDatabase()
+
+	//Create the table you want to use, you can pass an optional schema which is used to some
+	//advanced stuff
+	store.CreateTable("things", nil)
+
+	//now for profit, tables are accessed by name
+
+	//Save a thing which returns the stored key
+	key, _ := store.Save("things", map[string]interface{}{"name":"one thing", "kind": "table"})
+
+	//Or just save all things
+	keys, _ := store.SaveAll("things", []interface{}{
+		map[string]interface{}{"name": "First Thing", "kind": "chair"},
+		map[string]interface{}{"name": "Second Thing", "kind": "cup"},
+	})
+	keys = append(keys, key)
+	//Now we can retrieve a thing
+	var thing map[string]interface{}
+	store.Get(key, "things", &thing)
+
+	println(thing)
+
+```
+
 Api
 ====
 
@@ -84,6 +119,15 @@ Api
 *	FilterCounts
 *	GetByField
 *	GetByFieldsByField
+
+## Testing
+This project uses goconvey for testing but you can run tests like any other go project
+
+```
+go test -v
+```
+
+Testing rethinkdb store requires a running rethink server. This will be updated to use a mock rethinkdb in a few days after which this comment will be removed
 
 ## Contributors
 
