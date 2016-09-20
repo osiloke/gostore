@@ -4,12 +4,20 @@ import (
 	"errors"
 	"log"
 	"reflect"
+	"strconv"
 	"time"
 )
 
 func timeTrack(start time.Time, name string) {
 	elapsed := time.Since(start)
 	log.Printf("%s took %d", name, elapsed)
+}
+func ToInt(str string) (int64, error) {
+	res, err := strconv.ParseInt(str, 0, 64)
+	if err != nil {
+		res = 0
+	}
+	return res, err
 }
 
 var ErrKeyNotValid = errors.New("record key was not generated")

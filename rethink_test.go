@@ -6,7 +6,6 @@ import (
 	"testing"
 )
 
-// var session *gorethink.Session
 var collection = "things"
 var mock r.Mock
 
@@ -20,10 +19,51 @@ var names = map[int]string{
 
 func init() {
 }
+
+func rowsToArray(rows ObjectRows) (results []interface{}) {
+	ok := true
+	for ok {
+		var row map[string]interface{}
+		ok, _ = rows.Next(&row)
+		if !ok {
+			continue
+		}
+		results = append(results, row)
+	}
+	return
+}
+func TestAll(t *testing.T) {
+	ikeys := []int{4, 3, 2, 1}
+	expectedKeys := []string{"4", "3", "2", "1"}
+	pattern := 2
+	entries := make([]interface{}, 4)
+	kind := "thing"
+	for i, k := range ikeys {
+		if i > pattern {
+			kind = "something"
+		}
+		entries[i] = map[string]interface{}{"id": expectedKeys[i], "name": names[k], "kind": kind}
+	}
+
+	Convey("Giving a rethink store", t, func() {
+		mock := r.NewMock()
+		mock.On(r.DB("gostore_test").Table("things").Insert(entries, r.InsertOpts{Durability: "hard"})).Return(expectedKeys, nil)
+		mock.On(r.DB("gostore_test").Table("things").OrderBy(r.OrderByOpts{Index: r.Desc("id")})).Return(entries, nil)
+		store := RethinkStore{mock, "gostore_test"}
+		Convey("After adding things", func() {
+			store.SaveAll(collection, entries...)
+			Convey("The stored data is retrieved", func() {
+				rows, _ := store.All(4, 0, collection)
+				So(rowsToArray(rows), ShouldResemble, entries)
+			})
+		})
+	})
+
+}
 func TestRethinkSaveAndGet(t *testing.T) {
 	id := "1"
 	entry := map[string]interface{}{"id": id, "name": "First Thing",
-		"kind": "thing", "rating": 4.99}
+		"kind": "thing"}
 	mock := r.NewMock()
 	mock.On(r.DB("gostore_test").Table("things")).Return([]interface{}{}, nil)
 	mock.On(r.DB("gostore_test").Table("things").Delete(r.DeleteOpts{Durability: "hard"})).Return(nil, nil)
@@ -50,9 +90,7 @@ func TestRethinkSaveAndGet(t *testing.T) {
 
 }
 
-// func genData(length, pattern int) ([]string, []map[string]interface{}){}
 func TestFilterGet(t *testing.T) {
-	// store.DeleteAll(collection)
 
 	ikeys := []int{1, 2, 3, 4}
 	expectedKeys := []string{"1", "2", "3", "4"}
@@ -70,7 +108,7 @@ func TestFilterGet(t *testing.T) {
 	mock.On(r.DB("gostore_test").Table("things").Insert(entries, r.InsertOpts{Durability: "hard"})).Return(r.WriteResponse{GeneratedKeys: expectedKeys}, nil)
 	mock.On(r.DB("gostore_test").Table("things")).Return(entries, nil)
 	mock.On(r.DB("gostore_test").Table("things").Filter(r.Row.Field("name").Eq("Fourth")).Limit(1)).Return(entries[3], nil)
-	//Make global store
+
 	Convey("Giving a rethink store", t, func() {
 		store := RethinkStore{mock, "gostore_test"}
 		Convey("After creating a things table", func() {

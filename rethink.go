@@ -1,10 +1,7 @@
 package gostore
 
 import (
-	"fmt"
-	"github.com/asaskevich/govalidator"
 	r "github.com/dancannon/gorethink"
-	"github.com/dustin/gojson"
 	"github.com/jinzhu/now"
 	"github.com/mgutz/logxi/v1"
 	"strings"
@@ -155,7 +152,7 @@ func parseFilter(args string) (dtarg interface{}) {
 	if len(vals) > 1 {
 		//check type
 		if vals[1] == "dt" {
-			if it, err := govalidator.ToInt(vals[0]); err == nil {
+			if it, err := ToInt(vals[0]); err == nil {
 				logger.Info("< op date", "time", it)
 				return r.EpochTime(it)
 			}
@@ -292,103 +289,6 @@ func (s RethinkStore) filterTerm(filter map[string]interface{}, opts ObjectStore
 	return
 }
 
-// // TODO: Transforms filter args into rethinkdb filter args
-// func (s RethinkStore) ParseFilterArgs(filter map[string]interface{}, indexes []string, opts ObjectStoreOptions) r.Term {
-// 	var (
-// 		t r.Term = r.And(1)
-// 	)
-// 	// logger.Debug("filterArgs", "filter", filter, "indexes", indexes, "opts", opts)
-// 	//TODO: Optimize this by passing indexes as well as field types
-// 	orGroup := map[string]r.Term{}
-// 	andGroup := map[string]r.Term{}
-// 	for k, v := range filter {
-// 		val := v.(string)
-// 		key_rune := []rune(k)
-// 		val_rune := []rune(val)
-
-// 		if len(val_rune) > 0 {
-// 			var start int = 1
-// 			// joinMethod := andTerm
-// 			first := string(val_rune[0])
-// 			//Handle `or` grouping by key
-// 			if string(key_rune[0]) == "|" {
-// 				//split |groupName|field_name
-// 				orGroupName := ""
-// 				k_index := 0
-// 				rune_val := ""
-// 				for _rune_index, v := range key_rune[1:] {
-// 					rune_val = string(v)
-// 					if rune_val == "|" {
-// 						k_index = _rune_index + 2
-// 						break
-// 					}
-// 					orGroupName += rune_val
-// 				}
-// 				k = string(key_rune[k_index:])
-// 				if op, ok := filterOps[first]; ok {
-// 					tv := string([]rune(val)[start:])
-// 					if orGroupVal, ok := orGroup[orGroupName]; !ok {
-// 						orGroup[orGroupName] = op(k, r.Row.Field(k), tv)
-// 					} else {
-// 						orGroup[orGroupName] = orGroupVal.Or(op(k, r.Row.Field(k), tv))
-// 					}
-// 				} else {
-// 					if orGroupVal, ok := orGroup[orGroupName]; !ok {
-// 						orGroup[orGroupName] = r.Row.Field(k).Eq(v)
-// 					} else {
-// 						orGroup[orGroupName] = orGroupVal.Or(r.Row.Field(k).Eq(v))
-// 					}
-// 				}
-// 			} else if string(key_rune[0]) == "&" {
-// 				//split |groupName|field_name
-// 				andGroupName := ""
-// 				// k_index := 0
-// 				// rune_val := ""
-// 				// for _rune_index, v := range key_rune[1:] {
-// 				// 	rune_val = string(v)
-// 				// 	if rune_val == "&" {
-// 				// 		k_index = _rune_index + 2
-// 				// 		break
-// 				// 	}
-// 				// 	andGroupName += rune_val
-// 				// }
-// 				k_index := 1
-// 				k = string(key_rune[k_index:])
-// 				if op, ok := filterOps[first]; ok {
-// 					tv := string([]rune(val)[start:])
-// 					if andGroupVal, ok := andGroup[andGroupName]; !ok {
-// 						andGroup[andGroupName] = op(k, r.Row.Field(k), tv)
-// 					} else {
-// 						andGroup[andGroupName] = andGroupVal.And(op(k, r.Row.Field(k), tv))
-// 					}
-// 				} else {
-// 					if andGroupVal, ok := andGroup[andGroupName]; !ok {
-// 						andGroup[andGroupName] = r.Row.Field(k).Eq(v)
-// 					} else {
-// 						andGroup[andGroupName] = andGroupVal.And(r.Row.Field(k).Eq(v))
-// 					}
-// 				}
-// 			} else {
-// 				if op, ok := filterOps[first]; ok {
-// 					tv := string([]rune(val)[start:])
-// 					t = t.And(op(k, r.Row.Field(k), tv))
-// 				} else {
-// 					t = t.And(r.Row.Field(k).Eq(v))
-// 				}
-// 			}
-
-// 		}
-// 	}
-// 	for _, v := range orGroup {
-// 		t = t.And(v)
-// 	}
-// 	for _, v := range andGroup {
-// 		t = t.And(v)
-// 	}
-// 	// logger.Debug(t.String())
-// 	return t
-// }
-
 // http://stackoverflow.com/questions/19747207/rethinkdb-index-for-filter-orderby
 //TODO: fix index selection, it should favour compound indexes more
 func (s RethinkStore) getRootTerm(store string, filter map[string]interface{}, opts ObjectStoreOptions, args ...interface{}) (rootTerm r.Term) {
@@ -441,7 +341,6 @@ func (s RethinkStore) All(count int, skip int, store string) (rrows ObjectRows, 
 	if err != nil {
 		return
 	}
-	logger.Info(term.String())
 	rrows = RethinkRows{result}
 	return
 }
@@ -568,12 +467,10 @@ func (s RethinkStore) Replace(id string, store string, src interface{}) (err err
 
 func (s RethinkStore) Delete(id string, store string) (err error) {
 	_, err = r.DB(s.Database).Table(store).Get(id).Delete(r.DeleteOpts{Durability: "hard"}).RunWrite(s.Session)
-	// logger.Debug("deleting " + id + " from " + store)
 	return
 }
 func (s RethinkStore) DeleteAll(store string) (err error) {
 	_, err = r.DB(s.Database).Table(store).Delete(r.DeleteOpts{Durability: "hard"}).RunWrite(s.Session)
-	// logger.Debug("deleting all entried from " + store)
 	return
 }
 
@@ -601,8 +498,9 @@ func (s RethinkStore) GetByField(name, val, store string, dst interface{}) (err 
 	}
 	return
 }
+
+//FilterBefore returns rows created before a provided key. It accepts a filter and result shaping arguments
 func (s RethinkStore) FilterBefore(id string, filter map[string]interface{}, count int, skip int, store string, opts ObjectStoreOptions) (rows ObjectRows, err error) {
-	_ = "breakpoint"
 	rootTerm := r.DB(s.Database).Table(store).Between(
 		r.MinVal, id, r.BetweenOpts{RightBound: "closed"}).OrderBy(
 		r.OrderByOpts{Index: r.Desc("id")}).Filter(
@@ -611,27 +509,17 @@ func (s RethinkStore) FilterBefore(id string, filter map[string]interface{}, cou
 	if err != nil {
 		return
 	}
-	// defer result.Close()
 	if result.Err() != nil {
 		return nil, result.Err()
 	}
 	if result.IsNil() {
-
-		logger.Debug("FilterBefore::Failed", "query", rootTerm, "store", store)
 		return nil, ErrNotFound
 	}
-	//	var dst interface{}
-	f, _ := json.Marshal(filter)
-	logger.Debug("FilterBefore", "query",
-		fmt.Sprintf("r.db('%s').table('%s').between(r.minval, '%s').orderBy({index:r.desc('id')}).filter(%s).limit(%d)",
-			s.Database, store, id, string(f), count))
 	rows = RethinkRows{result}
 	return
 }
 
 func (s RethinkStore) FilterBeforeCount(id string, filter map[string]interface{}, count int, skip int, store string, opts ObjectStoreOptions) (int64, error) {
-	_ = "breakpoint"
-	_ = "FilterGet"
 	result, err := r.DB(s.Database).Table(store).Between(
 		r.MinVal, id).OrderBy(
 		r.OrderByOpts{Index: r.Desc("id")}).Filter(
@@ -646,8 +534,6 @@ func (s RethinkStore) FilterBeforeCount(id string, filter map[string]interface{}
 }
 
 func (s RethinkStore) FilterSince(id string, filter map[string]interface{}, count int, skip int, store string, opts ObjectStoreOptions) (rows ObjectRows, err error) {
-	_ = "breakpoint"
-	_ = "FilterGet"
 	result, err := r.DB(s.Database).Table(store).Between(
 		id, r.MaxVal, r.BetweenOpts{LeftBound: "open", Index: "id"}).OrderBy(
 		r.OrderByOpts{Index: r.Desc("id")}).Filter(
@@ -655,14 +541,12 @@ func (s RethinkStore) FilterSince(id string, filter map[string]interface{}, coun
 	if err != nil {
 		return
 	}
-	// defer result.Close()
 	if result.Err() != nil {
 		return nil, result.Err()
 	}
 	if result.IsNil() == true {
 		return nil, ErrNotFound
 	}
-	//	result.All(dst)
 	rows = RethinkRows{result}
 	return
 }
@@ -696,7 +580,6 @@ func (s RethinkStore) FilterGet(filter map[string]interface{}, store string, dst
 	rootTerm = rootTerm.Filter(s.transformFilter(nil, filter))
 	result, err := rootTerm.Limit(1).Run(s.Session)
 	logger.Debug("FilterGet::done", "store", store, "query", rootTerm.String())
-	// logger.Debug("filter get", "opts", opts, "filter", filter, "query", rootTerm.String())
 	if err != nil {
 		logger.Error("failed to get", "err", err.Error())
 		return err
@@ -722,16 +605,7 @@ func (s RethinkStore) FilterGet(filter map[string]interface{}, store string, dst
 
 func (s RethinkStore) FilterGetAll(filter map[string]interface{}, count int, skip int, store string, opts ObjectStoreOptions) (rrows ObjectRows, err error) {
 
-	logger.Debug("FilterGetAll::start", "filter", filter, "count", count, "skip", skip, "store", store)
 	var rootTerm = s.getRootTerm(store, filter, opts)
-	// if count > 0 {
-	// 	rootTerm = rootTerm.Limit(count)
-	// }
-	// result, err := rootTerm.Skip(skip).Run(s.Session)
-	// if err != nil {
-	// 	logger.Error("err", "err", err)
-	// 	return
-	// }
 	var query r.Term
 	if skip == 0 && count+skip == 0 {
 		query = rootTerm
@@ -743,13 +617,11 @@ func (s RethinkStore) FilterGetAll(filter map[string]interface{}, count int, ski
 		logger.Error("err", "err", err)
 		return
 	}
-	// defer result.Close()
 	logger.Debug("FilterGetAll::done", "query", rootTerm, "store", store)
 	if result.Err() != nil {
 		return nil, result.Err()
 	}
 	if result.IsNil() {
-		// logger.Error("err", "err", result.Err())
 		return nil, ErrNotFound
 	}
 	rrows = RethinkRows{result}
