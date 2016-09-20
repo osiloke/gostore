@@ -346,34 +346,36 @@ func TestParseFilterOpsOrMatchTerm(t *testing.T) {
 }
 
 func TestTransformFilter(t *testing.T) {
-	mock := r.NewMock()
-	store := RethinkStore{mock, "gostore_test"}
-	Convey("Given a filter", t, func() {
-		/*
-			food is either amala or ewedu and place is lagos
-			or
-			beverage is coke and server is olu
-		*/
+	Convey("Given a rethink gostore", t, func() {
+		mock := r.NewMock()
+		store := RethinkStore{mock, "gostore_test"}
+		Convey("Given a filter", func() {
+			/*
+				food is either amala or ewedu and place is lagos
+				or
+				beverage is coke and server is olu
+			*/
 
-		filter := map[string]interface{}{
-			"or": []interface{}{
-				map[string]interface{}{
-					"food":  "~amala|ewedu",
-					"place": "lagos",
+			filter := map[string]interface{}{
+				"or": []interface{}{
+					map[string]interface{}{
+						"food":  "~amala|ewedu",
+						"place": "lagos",
+					},
+					map[string]interface{}{
+						"beverage": "coke",
+						"server":   "olu",
+					},
 				},
-				map[string]interface{}{
-					"beverage": "coke",
-					"server":   "olu",
-				},
-			},
-		}
-		Convey("figure out rethink conditions", func() {
-			term := store.transformFilter(nil, filter)
-			So(term.String(), ShouldBeIn, []string{
-				`r.Or(r.Row.Field("place").Eq("lagos").And(r.Row.Field("food").Match("amala").Or(r.Row.Field("food").Match("ewedu"))), r.Row.Field("server").Eq("olu").And(r.Row.Field("beverage").Eq("coke")))`,
-				`r.Or(r.Row.Field("place").Eq("lagos").And(r.Row.Field("food").Match("amala").Or(r.Row.Field("food").Match("ewedu"))), r.Row.Field("beverage").Eq("coke").And(r.Row.Field("server").Eq("olu")))`,
-				`r.Or(r.Row.Field("food").Match("amala").Or(r.Row.Field("food").Match("ewedu")).And(r.Row.Field("place").Eq("lagos")), r.Row.Field("server").Eq("olu").And(r.Row.Field("beverage").Eq("coke")))`,
-				`r.Or(r.Row.Field("food").Match("amala").Or(r.Row.Field("food").Match("ewedu")).And(r.Row.Field("place").Eq("lagos")), r.Row.Field("beverage").Eq("coke").And(r.Row.Field("server").Eq("olu")))`,
+			}
+			Convey("figure out rethink conditions", func() {
+				term := store.transformFilter(nil, filter)
+				So(term.String(), ShouldBeIn, []string{
+					`r.Or(r.Row.Field("place").Eq("lagos").And(r.Row.Field("food").Match("amala").Or(r.Row.Field("food").Match("ewedu"))), r.Row.Field("server").Eq("olu").And(r.Row.Field("beverage").Eq("coke")))`,
+					`r.Or(r.Row.Field("place").Eq("lagos").And(r.Row.Field("food").Match("amala").Or(r.Row.Field("food").Match("ewedu"))), r.Row.Field("beverage").Eq("coke").And(r.Row.Field("server").Eq("olu")))`,
+					`r.Or(r.Row.Field("food").Match("amala").Or(r.Row.Field("food").Match("ewedu")).And(r.Row.Field("place").Eq("lagos")), r.Row.Field("server").Eq("olu").And(r.Row.Field("beverage").Eq("coke")))`,
+					`r.Or(r.Row.Field("food").Match("amala").Or(r.Row.Field("food").Match("ewedu")).And(r.Row.Field("place").Eq("lagos")), r.Row.Field("beverage").Eq("coke").And(r.Row.Field("server").Eq("olu")))`,
+				})
 			})
 		})
 	})
@@ -427,47 +429,59 @@ func TestGetRootTermWithIndexes(t *testing.T) {
 	})
 }
 
-// func TestBatchFilterDelete(t *testing.T) {
-// 	// Only pass t into top-level Convey calls
-// 	Convey("Giving a rethink store", t, func() {
-// 		store.DeleteAll(collection)
-// 		Convey("After creating a things table", func() {
-// 			Convey("After inserting two rows", func() {
-// 				items := []interface{}{
-// 					map[string]interface{}{"id": "1", "name": "First Thing", "kind": "thing", "rating": 4.99},
-// 					map[string]interface{}{"id": "2", "name": "Second Thing", "kind": "thing", "rating": 4.99},
-// 					map[string]interface{}{"id": "3", "name": "First Something", "kind": "something", "rating": 4.99},
-// 				}
-// 				_, err := store.SaveAll(collection, items...)
-// 				if err != nil {
-// 					panic(err)
-// 				}
-// 				Convey("We can delete two rows using two filters", func() {
-// 					// (kind=thing&id=1)&()
-// 					err = store.BatchFilterDelete([]map[string]interface{}{
-// 						{
-// 							"kind": "thing",
-// 							"id":   "1",
-// 						},
-// 						{
-// 							"or": map[string]interface{}{
-// 								"kind": "something",
-// 								"id":   "2",
-// 							},
-// 						},
-// 					}, collection, nil)
-// 					if err != nil {
-// 						panic(err)
-// 					}
-// 					Convey("Now the store should contain only entries that dont match the filter", func() {
-// 						count, err := store.FilterCount(nil, collection, nil)
-// 						if err != nil {
-// 							panic(err)
-// 						}
-// 						So(count, ShouldEqual, int64(1))
-// 					})
-// 				})
-// 			})
-// 		})
-// 	})
-// }
+func TestBatchFilterDelete(t *testing.T) {
+	expectedKeys := []string{"1", "2", "3"}
+	items := []interface{}{
+		map[string]interface{}{"id": "1", "name": "First Thing", "kind": "thing"},
+		map[string]interface{}{"id": "2", "name": "Second Thing", "kind": "thing"},
+		map[string]interface{}{"id": "3", "name": "First Something", "kind": "something"},
+	}
+	Convey("Giving a rethink store", t, func() {
+		mock := r.NewMock()
+		mock.On(r.DB("gostore_test").Table("things").Insert(items, r.InsertOpts{Durability: "hard"})).Return(r.WriteResponse{GeneratedKeys: expectedKeys}, nil)
+		mock.On(r.DB("gostore_test").Table("things").Union(
+			r.DB("gostore_test").Table("things").OrderBy(r.OrderByOpts{Index: r.Desc("id")}).Filter(r.Row.Field("id").Eq("1").And(r.Row.Field("kind").Eq("thing"))),
+			r.DB("gostore_test").Table("things").OrderBy(r.OrderByOpts{Index: r.Desc("id")}).Filter(r.Row.Field("kind").Eq("something").And(r.Row.Field("id").Eq("2")))).Delete(),
+		).Return(r.WriteResponse{Deleted: 2}, nil)
+		mock.On(r.DB("gostore_test").Table("things").Union(
+			r.DB("gostore_test").Table("things").OrderBy(r.OrderByOpts{Index: r.Desc("id")}).Filter(r.Row.Field("kind").Eq("thing").And(r.Row.Field("id").Eq("1"))),
+			r.DB("gostore_test").Table("things").OrderBy(r.OrderByOpts{Index: r.Desc("id")}).Filter(r.Row.Field("kind").Eq("something").And(r.Row.Field("id").Eq("2")))).Delete(),
+		).Return(r.WriteResponse{Deleted: 2}, nil)
+
+		mock.On(r.DB("gostore_test").Table("things").OrderBy(r.OrderByOpts{Index: r.Desc("id")}).Count()).Return(1, nil)
+
+		store := RethinkStore{mock, "gostore_test"}
+		Convey("After creating a things table", func() {
+			Convey("After inserting two rows", func() {
+
+				_, err := store.SaveAll(collection, items...)
+				if err != nil {
+					panic(err)
+				}
+				Convey("We can delete two rows using two filters", func() {
+					// (kind=thing&id=1)&()
+					err = store.BatchFilterDelete([]map[string]interface{}{
+						{
+							"kind": "thing",
+							"id":   "1",
+						},
+						{
+							"kind": "something",
+							"id":   "2",
+						},
+					}, collection, nil)
+					if err != nil {
+						panic(err)
+					}
+					Convey("Now the store should contain only entries that dont match the filter", func() {
+						count, err := store.FilterCount(nil, collection, nil)
+						if err != nil {
+							panic(err)
+						}
+						So(count, ShouldEqual, int64(1))
+					})
+				})
+			})
+		})
+	})
+}

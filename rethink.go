@@ -767,14 +767,18 @@ func (s RethinkStore) FilterDelete(filter map[string]interface{}, store string, 
 	return
 }
 func (s RethinkStore) BatchFilterDelete(filter []map[string]interface{}, store string, opts ObjectStoreOptions) (err error) {
-	// term := s.getRootTerm(store, filter, opts)
-	// var rootTerm = term.Delete(r.DeleteOpts{Durability: "hard"})
-	// _, err = rootTerm.RunWrite(s.Session)
-	// if err == r.ErrEmptyResult {
-	// 	return ErrNotFound
-	// }
+	terms := make([]interface{}, 2)
+	for i, f := range filter {
+		var term = s.getRootTerm(store, f, opts)
+		terms[i] = term
+	}
+	rootTerm := r.DB(s.Database).Table(store).Union(terms...).Delete()
+	_, err = rootTerm.RunWrite(s.Session)
+	if err == r.ErrEmptyResult {
+		return ErrNotFound
+	}
 
-	return ErrNotImplemented
+	return
 }
 
 func (s RethinkStore) FilterCount(filter map[string]interface{}, store string, opts ObjectStoreOptions) (int64, error) {
