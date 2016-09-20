@@ -11,6 +11,7 @@ The idea is to standardize high level database operations that are common to eve
 *RDBMS support is still experimental
 
 **Features:**
+- Support go1.3+
 - Generalized api for accessing multiple types of databases
 - Uses best practices for manipulating data tailored to each type of database
 - Application level filtering for databases that dont support filtering (BoltDB)
