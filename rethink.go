@@ -34,8 +34,14 @@ func NewRethinkObjectStore(session *r.Session, database string) RethinkStore {
 	return s
 }
 
+func NewMockRethinkObjectStore(mock *r.Mock, database string) RethinkStore {
+	s := RethinkStore{mock, database}
+	s.CreateDatabase()
+	return s
+}
+
 type RethinkStore struct {
-	Session  *r.Session
+	Session  r.QueryExecutor
 	Database string
 }
 
@@ -286,102 +292,102 @@ func (s RethinkStore) filterTerm(filter map[string]interface{}, opts ObjectStore
 	return
 }
 
-// TODO: Transforms filter args into rethinkdb filter args
-func (s RethinkStore) ParseFilterArgs(filter map[string]interface{}, indexes []string, opts ObjectStoreOptions) r.Term {
-	var (
-		t r.Term = r.And(1)
-	)
-	// logger.Debug("filterArgs", "filter", filter, "indexes", indexes, "opts", opts)
-	//TODO: Optimize this by passing indexes as well as field types
-	orGroup := map[string]r.Term{}
-	andGroup := map[string]r.Term{}
-	for k, v := range filter {
-		val := v.(string)
-		key_rune := []rune(k)
-		val_rune := []rune(val)
+// // TODO: Transforms filter args into rethinkdb filter args
+// func (s RethinkStore) ParseFilterArgs(filter map[string]interface{}, indexes []string, opts ObjectStoreOptions) r.Term {
+// 	var (
+// 		t r.Term = r.And(1)
+// 	)
+// 	// logger.Debug("filterArgs", "filter", filter, "indexes", indexes, "opts", opts)
+// 	//TODO: Optimize this by passing indexes as well as field types
+// 	orGroup := map[string]r.Term{}
+// 	andGroup := map[string]r.Term{}
+// 	for k, v := range filter {
+// 		val := v.(string)
+// 		key_rune := []rune(k)
+// 		val_rune := []rune(val)
 
-		if len(val_rune) > 0 {
-			var start int = 1
-			// joinMethod := andTerm
-			first := string(val_rune[0])
-			//Handle `or` grouping by key
-			if string(key_rune[0]) == "|" {
-				//split |groupName|field_name
-				orGroupName := ""
-				k_index := 0
-				rune_val := ""
-				for _rune_index, v := range key_rune[1:] {
-					rune_val = string(v)
-					if rune_val == "|" {
-						k_index = _rune_index + 2
-						break
-					}
-					orGroupName += rune_val
-				}
-				k = string(key_rune[k_index:])
-				if op, ok := filterOps[first]; ok {
-					tv := string([]rune(val)[start:])
-					if orGroupVal, ok := orGroup[orGroupName]; !ok {
-						orGroup[orGroupName] = op(k, r.Row.Field(k), tv)
-					} else {
-						orGroup[orGroupName] = orGroupVal.Or(op(k, r.Row.Field(k), tv))
-					}
-				} else {
-					if orGroupVal, ok := orGroup[orGroupName]; !ok {
-						orGroup[orGroupName] = r.Row.Field(k).Eq(v)
-					} else {
-						orGroup[orGroupName] = orGroupVal.Or(r.Row.Field(k).Eq(v))
-					}
-				}
-			} else if string(key_rune[0]) == "&" {
-				//split |groupName|field_name
-				andGroupName := ""
-				// k_index := 0
-				// rune_val := ""
-				// for _rune_index, v := range key_rune[1:] {
-				// 	rune_val = string(v)
-				// 	if rune_val == "&" {
-				// 		k_index = _rune_index + 2
-				// 		break
-				// 	}
-				// 	andGroupName += rune_val
-				// }
-				k_index := 1
-				k = string(key_rune[k_index:])
-				if op, ok := filterOps[first]; ok {
-					tv := string([]rune(val)[start:])
-					if andGroupVal, ok := andGroup[andGroupName]; !ok {
-						andGroup[andGroupName] = op(k, r.Row.Field(k), tv)
-					} else {
-						andGroup[andGroupName] = andGroupVal.And(op(k, r.Row.Field(k), tv))
-					}
-				} else {
-					if andGroupVal, ok := andGroup[andGroupName]; !ok {
-						andGroup[andGroupName] = r.Row.Field(k).Eq(v)
-					} else {
-						andGroup[andGroupName] = andGroupVal.And(r.Row.Field(k).Eq(v))
-					}
-				}
-			} else {
-				if op, ok := filterOps[first]; ok {
-					tv := string([]rune(val)[start:])
-					t = t.And(op(k, r.Row.Field(k), tv))
-				} else {
-					t = t.And(r.Row.Field(k).Eq(v))
-				}
-			}
+// 		if len(val_rune) > 0 {
+// 			var start int = 1
+// 			// joinMethod := andTerm
+// 			first := string(val_rune[0])
+// 			//Handle `or` grouping by key
+// 			if string(key_rune[0]) == "|" {
+// 				//split |groupName|field_name
+// 				orGroupName := ""
+// 				k_index := 0
+// 				rune_val := ""
+// 				for _rune_index, v := range key_rune[1:] {
+// 					rune_val = string(v)
+// 					if rune_val == "|" {
+// 						k_index = _rune_index + 2
+// 						break
+// 					}
+// 					orGroupName += rune_val
+// 				}
+// 				k = string(key_rune[k_index:])
+// 				if op, ok := filterOps[first]; ok {
+// 					tv := string([]rune(val)[start:])
+// 					if orGroupVal, ok := orGroup[orGroupName]; !ok {
+// 						orGroup[orGroupName] = op(k, r.Row.Field(k), tv)
+// 					} else {
+// 						orGroup[orGroupName] = orGroupVal.Or(op(k, r.Row.Field(k), tv))
+// 					}
+// 				} else {
+// 					if orGroupVal, ok := orGroup[orGroupName]; !ok {
+// 						orGroup[orGroupName] = r.Row.Field(k).Eq(v)
+// 					} else {
+// 						orGroup[orGroupName] = orGroupVal.Or(r.Row.Field(k).Eq(v))
+// 					}
+// 				}
+// 			} else if string(key_rune[0]) == "&" {
+// 				//split |groupName|field_name
+// 				andGroupName := ""
+// 				// k_index := 0
+// 				// rune_val := ""
+// 				// for _rune_index, v := range key_rune[1:] {
+// 				// 	rune_val = string(v)
+// 				// 	if rune_val == "&" {
+// 				// 		k_index = _rune_index + 2
+// 				// 		break
+// 				// 	}
+// 				// 	andGroupName += rune_val
+// 				// }
+// 				k_index := 1
+// 				k = string(key_rune[k_index:])
+// 				if op, ok := filterOps[first]; ok {
+// 					tv := string([]rune(val)[start:])
+// 					if andGroupVal, ok := andGroup[andGroupName]; !ok {
+// 						andGroup[andGroupName] = op(k, r.Row.Field(k), tv)
+// 					} else {
+// 						andGroup[andGroupName] = andGroupVal.And(op(k, r.Row.Field(k), tv))
+// 					}
+// 				} else {
+// 					if andGroupVal, ok := andGroup[andGroupName]; !ok {
+// 						andGroup[andGroupName] = r.Row.Field(k).Eq(v)
+// 					} else {
+// 						andGroup[andGroupName] = andGroupVal.And(r.Row.Field(k).Eq(v))
+// 					}
+// 				}
+// 			} else {
+// 				if op, ok := filterOps[first]; ok {
+// 					tv := string([]rune(val)[start:])
+// 					t = t.And(op(k, r.Row.Field(k), tv))
+// 				} else {
+// 					t = t.And(r.Row.Field(k).Eq(v))
+// 				}
+// 			}
 
-		}
-	}
-	for _, v := range orGroup {
-		t = t.And(v)
-	}
-	for _, v := range andGroup {
-		t = t.And(v)
-	}
-	// logger.Debug(t.String())
-	return t
-}
+// 		}
+// 	}
+// 	for _, v := range orGroup {
+// 		t = t.And(v)
+// 	}
+// 	for _, v := range andGroup {
+// 		t = t.And(v)
+// 	}
+// 	// logger.Debug(t.String())
+// 	return t
+// }
 
 // http://stackoverflow.com/questions/19747207/rethinkdb-index-for-filter-orderby
 func (s RethinkStore) getRootTerm(store string, filter map[string]interface{}, opts ObjectStoreOptions, args ...interface{}) (rootTerm r.Term) {
@@ -392,9 +398,7 @@ func (s RethinkStore) getRootTerm(store string, filter map[string]interface{}, o
 	var indexVal string
 	if opts != nil {
 		indexes := opts.GetIndexes()
-		logger.Debug("getRootTerm", "store", store, "filter", filter, "opts", opts)
 		for name := range indexes {
-			logger.Debug("checking index " + name)
 			if val, ok := filter[name].(string); ok {
 				hasIndex = true
 				indexVal = val
@@ -424,7 +428,9 @@ func (s RethinkStore) getRootTerm(store string, filter map[string]interface{}, o
 			rootTerm = rootTerm.GetAllByIndex(indexName, indexVal)
 		}
 	}
-	rootTerm = rootTerm.Filter(s.ParseFilterArgs(filter, nil, opts))
+	if len(filter) > 0 {
+		rootTerm = rootTerm.Filter(s.transformFilter(nil, filter))
+	}
 	return
 }
 
@@ -599,7 +605,7 @@ func (s RethinkStore) FilterBefore(id string, filter map[string]interface{}, cou
 	rootTerm := r.DB(s.Database).Table(store).Between(
 		r.MinVal, id, r.BetweenOpts{RightBound: "closed"}).OrderBy(
 		r.OrderByOpts{Index: r.Desc("id")}).Filter(
-		s.ParseFilterArgs(filter, nil, opts)).Limit(count)
+		s.transformFilter(nil, filter)).Limit(count)
 	result, err := rootTerm.Run(s.Session)
 	if err != nil {
 		return
@@ -628,7 +634,7 @@ func (s RethinkStore) FilterBeforeCount(id string, filter map[string]interface{}
 	result, err := r.DB(s.Database).Table(store).Between(
 		r.MinVal, id).OrderBy(
 		r.OrderByOpts{Index: r.Desc("id")}).Filter(
-		s.ParseFilterArgs(filter, nil, opts)).Count().Run(s.Session)
+		s.transformFilter(nil, filter)).Count().Run(s.Session)
 	defer result.Close()
 
 	var cnt int64
@@ -644,7 +650,7 @@ func (s RethinkStore) FilterSince(id string, filter map[string]interface{}, coun
 	result, err := r.DB(s.Database).Table(store).Between(
 		id, r.MaxVal, r.BetweenOpts{LeftBound: "open", Index: "id"}).OrderBy(
 		r.OrderByOpts{Index: r.Desc("id")}).Filter(
-		s.ParseFilterArgs(filter, nil, opts)).Limit(count).Run(s.Session)
+		s.transformFilter(nil, filter)).Limit(count).Run(s.Session)
 	if err != nil {
 		return
 	}
@@ -686,7 +692,7 @@ func (s RethinkStore) FilterGet(filter map[string]interface{}, store string, dst
 			}
 		}
 	}
-	rootTerm = rootTerm.Filter(s.ParseFilterArgs(filter, nil, opts))
+	rootTerm = rootTerm.Filter(s.transformFilter(nil, filter))
 	result, err := rootTerm.Limit(1).Run(s.Session)
 	logger.Debug("FilterGet::done", "store", store, "query", rootTerm.String())
 	// logger.Debug("filter get", "opts", opts, "filter", filter, "query", rootTerm.String())
@@ -760,10 +766,9 @@ func (s RethinkStore) FilterDelete(filter map[string]interface{}, store string, 
 	return
 }
 func (s RethinkStore) BatchFilterDelete(filter []map[string]interface{}, store string, opts ObjectStoreOptions) (err error) {
-	// term := s.getRootTerm(store, filter, opts, true)
+	// term := s.getRootTerm(store, filter, opts)
 	// var rootTerm = term.Delete(r.DeleteOpts{Durability: "hard"})
 	// _, err = rootTerm.RunWrite(s.Session)
-	// logger.Debug("BatchFilterDelete::done", "store", store, "query", rootTerm.String())
 	// if err == r.ErrEmptyResult {
 	// 	return ErrNotFound
 	// }
@@ -804,5 +809,5 @@ func (s RethinkStore) GetByFieldsByField(name, val, store string, fields []strin
 }
 
 func (s RethinkStore) Close() {
-	s.Session.Close()
+	s.Session.(*r.Session).Close()
 }
