@@ -91,6 +91,20 @@ func (_m *ObjectStore) BatchFilterDelete(filter []map[string]interface{}, store 
 	return r0
 }
 
+// BatchUpdate provides a mock function with given fields: id, data, store, opts
+func (_m *ObjectStore) BatchUpdate(id []interface{}, data []interface{}, store string, opts gostore.ObjectStoreOptions) error {
+	ret := _m.Called(id, data, store, opts)
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func([]interface{}, []interface{}, string, gostore.ObjectStoreOptions) error); ok {
+		r0 = rf(id, data, store, opts)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
 // Before provides a mock function with given fields: id, count, skip, store
 func (_m *ObjectStore) Before(id string, count int, skip int, store string) (gostore.ObjectRows, error) {
 	ret := _m.Called(id, count, skip, store)

@@ -686,6 +686,7 @@ func (s RethinkStore) BatchFilterDelete(filter []map[string]interface{}, store s
 	return
 }
 
+//BatchUpdate updates multiple rows by id
 func (s RethinkStore) BatchUpdate(ids []interface{}, data []interface{}, store string, opts ObjectStoreOptions) (err error) {
 
 	_, err = r.DB(s.Database).Table(store).GetAll(ids...).Update(func(row r.Term) interface{} {
@@ -700,7 +701,9 @@ func (s RethinkStore) BatchUpdate(ids []interface{}, data []interface{}, store s
 		args[lenArgs] = nil
 		return r.Branch(args...)
 	}, r.UpdateOpts{Durability: "hard"}).RunWrite(s.Session)
-
+	// if res.Updated < len(ids) {
+	// 	err = ErrNotAllDeleted
+	// }
 	return
 }
 
