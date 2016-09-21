@@ -638,20 +638,6 @@ func (s RethinkStore) FilterDelete(filter map[string]interface{}, store string, 
 	}
 	return
 }
-func (s RethinkStore) BatchFilterDelete(filter []map[string]interface{}, store string, opts ObjectStoreOptions) (err error) {
-	terms := make([]interface{}, 2)
-	for i, f := range filter {
-		var term = s.getRootTerm(store, f, opts)
-		terms[i] = term
-	}
-	rootTerm := r.Union(terms...).Delete()
-	_, err = rootTerm.RunWrite(s.Session)
-	if err == r.ErrEmptyResult {
-		return ErrNotFound
-	}
-
-	return
-}
 
 func (s RethinkStore) FilterCount(filter map[string]interface{}, store string, opts ObjectStoreOptions) (int64, error) {
 	_ = "breakpoint"
@@ -683,6 +669,57 @@ func (s RethinkStore) GetByFieldsByField(name, val, store string, fields []strin
 		return ErrNotFound
 	}
 	return
+}
+
+func (s RethinkStore) BatchFilterDelete(filter []map[string]interface{}, store string, opts ObjectStoreOptions) (err error) {
+	terms := make([]interface{}, 2)
+	for i, f := range filter {
+		var term = s.getRootTerm(store, f, opts)
+		terms[i] = term
+	}
+	rootTerm := r.Union(terms...).Delete()
+	_, err = rootTerm.RunWrite(s.Session)
+	if err == r.ErrEmptyResult {
+		return ErrNotFound
+	}
+
+	return
+}
+
+func (s RethinkStore) BatchUpdate(ids []interface{}, data []interface{}, store string, opts ObjectStoreOptions) (err error) {
+
+	_, err = r.DB(s.Database).Table(store).GetAll(ids...).Update(func(row r.Term) interface{} {
+		lenArgs := len(ids) * 2
+		args := make([]interface{}, lenArgs+1)
+		for k, v := range ids {
+			first := k * 2
+			second := first + 1
+			args[first] = row.Field("id").Eq(v.(string))
+			args[second] = data[k]
+		}
+		args[lenArgs] = nil
+		return r.Branch(args...)
+	}, r.UpdateOpts{Durability: "hard"}).RunWrite(s.Session)
+
+	return
+}
+
+func (s RethinkStore) BatchFilterUpdate(filter []map[string]interface{}, updateData map[string]interface{}, store string, opts ObjectStoreOptions) (err error) {
+
+	// _, err = r.DB(s.Database).Table(store).GetAll(ids...).Update(func(row r.Term) interface{} {
+	// 	lenArgs := len(ids) * 2
+	// 	args := make([]interface{}, lenArgs+1)
+	// 	for k, v := range ids {
+	// 		first := k * 2
+	// 		second := first + 1
+	// 		args[first] = row.Field("id").Eq(v.(string))
+	// 		args[second] = data[k]
+	// 	}
+	// 	args[lenArgs] = nil
+	// 	return r.Branch(args...)
+	// }, r.UpdateOpts{Durability: "hard"}).RunWrite(s.Session)
+
+	return ErrNotImplemented
 }
 
 func (s RethinkStore) Close() {

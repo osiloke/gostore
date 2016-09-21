@@ -60,6 +60,83 @@ func TestAll(t *testing.T) {
 	})
 
 }
+func TestGet(t *testing.T) {
+	ikeys := []int{4, 3, 2, 1}
+	expectedKeys := []string{"4", "3", "2", "1"}
+	pattern := 2
+	entries := make([]interface{}, 4)
+	kind := "thing"
+	for i, k := range ikeys {
+		if i > pattern {
+			kind = "something"
+		}
+		entries[i] = map[string]interface{}{"id": expectedKeys[i], "name": names[k], "kind": kind}
+	}
+
+	Convey("Giving a rethink store", t, func() {
+		mock := r.NewMock()
+		mock.On(r.DB("gostore_test").Table("things").Insert(entries, r.InsertOpts{Durability: "hard"})).Return(expectedKeys, nil)
+		mock.On(r.DB("gostore_test").Table("things").OrderBy(r.OrderByOpts{Index: r.Desc("id")})).Return(entries, nil)
+		mock.On(r.DB("gostore_test").Table("things").Get("4")).Return(entries[0], nil)
+		store := RethinkStore{mock, "gostore_test"}
+		Convey("After adding things", func() {
+			store.SaveAll(collection, entries...)
+			Convey("Get one thing", func() {
+				var dst map[string]interface{}
+				store.Get("4", collection, &dst)
+				So(dst, ShouldResemble, entries[0])
+			})
+		})
+	})
+
+}
+
+func TestPut(t *testing.T) {
+	entry := map[string]interface{}{"id": "4", "name": "name", "kind": "thing"}
+	expected := map[string]interface{}{"id": "4", "name": "updated name", "kind": "thing"}
+
+	Convey("Giving a rethink store", t, func() {
+		mock := r.NewMock()
+		mock.On(r.DB("gostore_test").Table("things").Insert(entry, r.InsertOpts{Durability: "soft"})).Return("4", nil)
+		mock.On(r.DB("gostore_test").Table("things").OrderBy(r.OrderByOpts{Index: r.Desc("id")})).Return([]interface{}{entry}, nil)
+		mock.On(r.DB("gostore_test").Table("things").Get("4")).Return(expected, nil)
+		mock.On(r.DB("gostore_test").Table("things").Get("4").Update(map[string]interface{}{"name": "updated name"},
+			r.UpdateOpts{Durability: "soft"})).Return(r.WriteResponse{GeneratedKeys: []string{"4"}}, nil)
+		store := RethinkStore{mock, "gostore_test"}
+		Convey("After adding things", func() {
+			store.Save(collection, entry)
+			Convey("After updating a thing", func() {
+				store.Update("4", collection, map[string]interface{}{"name": "updated name"})
+				Convey("Thing should be updated", func() {
+					var dst map[string]interface{}
+					store.Get("4", collection, &dst)
+					So(dst, ShouldResemble, expected)
+				})
+			})
+		})
+	})
+}
+
+func TestSave(t *testing.T) {
+	entry := map[string]interface{}{"id": "4", "name": "name", "kind": "thing"}
+
+	Convey("Giving a rethink store", t, func() {
+		mock := r.NewMock()
+		mock.On(r.DB("gostore_test").Table("things").Insert(entry, r.InsertOpts{Durability: "soft"})).Return("4", nil)
+		mock.On(r.DB("gostore_test").Table("things").OrderBy(r.OrderByOpts{Index: r.Desc("id")})).Return([]interface{}{entry}, nil)
+		mock.On(r.DB("gostore_test").Table("things").Get("4")).Return(entry, nil)
+		store := RethinkStore{mock, "gostore_test"}
+		Convey("After saving a thing", func() {
+			store.Save(collection, entry)
+			Convey("Thing should be updated", func() {
+				var dst map[string]interface{}
+				store.Get("4", collection, &dst)
+				So(dst, ShouldResemble, entry)
+			})
+		})
+	})
+}
+
 func TestRethinkSaveAndGet(t *testing.T) {
 	id := "1"
 	entry := map[string]interface{}{"id": id, "name": "First Thing",
@@ -462,6 +539,56 @@ func TestGetRootTermWithIndexes(t *testing.T) {
 					`r.DB("gostore_test").Table("things").GetAll("1", index="id").Filter(func(var_12 r.Term) r.Term { return r.Row.Field("id").Eq("1").And(r.Row.Field("kind").Eq("thing")) })`,
 					`r.DB("gostore_test").Table("things").GetAll("thing", index="kind").Filter(func(var_12 r.Term) r.Term { return r.Row.Field("kind").Eq("thing").And(r.Row.Field("id").Eq("1")) })`,
 					`r.DB("gostore_test").Table("things").GetAll("thing", index="kind").Filter(func(var_12 r.Term) r.Term { return r.Row.Field("id").Eq("1").And(r.Row.Field("kind").Eq("thing")) })`,
+				})
+			})
+		})
+	})
+}
+
+func TestBatchUpdate(t *testing.T) {
+	expectedKeys := []string{"1", "2", "3"}
+	items := []interface{}{
+		map[string]interface{}{"id": "1", "name": "First Thing", "kind": "thing"},
+		map[string]interface{}{"id": "2", "name": "Second Thing", "kind": "thing"},
+		map[string]interface{}{"id": "3", "name": "First Something", "kind": "something"},
+	}
+	expectedItems := []interface{}{
+		map[string]interface{}{"id": "1", "name": "First Thing", "kind": "thing"},
+		map[string]interface{}{"id": "2", "name": "Second Thing", "kind": "thing"},
+		map[string]interface{}{"id": "3", "name": "First Something", "kind": "something"},
+	}
+	Convey("Giving a rethink store", t, func() {
+		mock := r.NewMock()
+		mock.On(r.DB("gostore_test").Table("things").Insert(items,
+			r.InsertOpts{Durability: "hard"}),
+		).Return(r.WriteResponse{GeneratedKeys: expectedKeys}, nil)
+		mock.On(r.DB("gostore_test").Table("things").GetAll("1", "3").Update(func(row r.Term) r.Term {
+			return r.Branch(
+				row.Field("id").Eq("1"),
+				map[string]interface{}{"name": "First Thing Changed"},
+				row.Field("id").Eq("3"), map[string]interface{}{"name": "First Something Changed"},
+				nil,
+			)
+		}, r.UpdateOpts{Durability: "hard"})).Return(expectedItems, nil)
+		mock.On(r.DB("gostore_test").Table("things").OrderBy(r.OrderByOpts{Index: r.Desc("id")})).Return(expectedItems, nil)
+		store := RethinkStore{mock, "gostore_test"}
+		_, err := store.SaveAll(collection, items...)
+		if err != nil {
+			panic(err)
+		}
+		Convey("After inserting two rows", func() {
+			Convey("We can delete two rows using two filters", func() {
+				// (kind=thing&id=1)&()
+				err = store.BatchUpdate([]interface{}{"1", "3"}, []interface{}{
+					map[string]interface{}{"name": "First Thing Changed"},
+					map[string]interface{}{"name": "First Something Changed"},
+				}, collection, nil)
+				if err != nil {
+					panic(err)
+				}
+				Convey("Now the store should contain only entries that dont match the filter", func() {
+					rows, _ := store.All(0, 0, collection)
+					So(rowsToArray(rows), ShouldResemble, expectedItems)
 				})
 			})
 		})

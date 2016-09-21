@@ -37,15 +37,12 @@ func (d DefaultObjectStoreOptions) GetIndexes() map[string][]string {
 
 //ObjectStore represents all api common to all database implementations
 type ObjectStore interface {
-	//Management Api
 	CreateDatabase() error
 	CreateTable(table string, sample interface{}) error
 
-	//Misc api
 	GetStore() interface{}
 	Stats(store string) (map[string]interface{}, error)
 
-	//New Api
 	All(count int, skip int, store string) (ObjectRows, error)
 	AllCursor(store string) (ObjectRows, error)
 	AllWithinRange(filter map[string]interface{}, count int, skip int, store string, opts ObjectStoreOptions) (ObjectRows, error)
@@ -64,18 +61,18 @@ type ObjectStore interface {
 	Replace(key string, store string, src interface{}) error
 	Delete(key string, store string) error
 
-	//Filter
 	FilterUpdate(filter map[string]interface{}, src interface{}, store string, opts ObjectStoreOptions) error
 	FilterReplace(filter map[string]interface{}, src interface{}, store string, opts ObjectStoreOptions) error
 	FilterGet(filter map[string]interface{}, store string, dst interface{}, opts ObjectStoreOptions) error
 	FilterGetAll(filter map[string]interface{}, count int, skip int, store string, opts ObjectStoreOptions) (ObjectRows, error)
 	FilterDelete(filter map[string]interface{}, store string, opts ObjectStoreOptions) error
-	BatchFilterDelete(filter []map[string]interface{}, store string, opts ObjectStoreOptions) error
 	FilterCount(filter map[string]interface{}, store string, opts ObjectStoreOptions) (int64, error)
 
-	//Misc gets
 	GetByField(name, val, store string, dst interface{}) error
 	GetByFieldsByField(name, val, store string, fields []string, dst interface{}) (err error)
+
+	BatchUpdate(id []string, data []interface{}, store string, opts ObjectStoreOptions) error
+	BatchFilterDelete(filter []map[string]interface{}, store string, opts ObjectStoreOptions) error
 
 	Close()
 }
