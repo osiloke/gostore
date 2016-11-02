@@ -71,6 +71,7 @@ type ObjectStore interface {
 	GetByField(name, val, store string, dst interface{}) error
 	GetByFieldsByField(name, val, store string, fields []string, dst interface{}) (err error)
 
+	BatchDelete(ids []interface{}, store string, opts ObjectStoreOptions) (err error)
 	BatchUpdate(id []interface{}, data []interface{}, store string, opts ObjectStoreOptions) error
 	BatchFilterDelete(filter []map[string]interface{}, store string, opts ObjectStoreOptions) error
 

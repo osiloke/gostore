@@ -328,7 +328,9 @@ func (s PostgresObjectStore) FilterGetAll(filter map[string]interface{}, count i
 	prows = PostgresRows{rows}
 	return
 }
-
+func (s PostgresObjectStore) BatchDelete(ids []interface{}, store string, opts ObjectStoreOptions) (err error) {
+	return ErrNotImplemented
+}
 func (s PostgresObjectStore) BatchUpdate(id []interface{}, data []interface{}, store string, opts ObjectStoreOptions) (err error) {
 	return ErrNotImplemented
 }

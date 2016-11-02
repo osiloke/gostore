@@ -299,6 +299,7 @@ func (s RethinkStore) getRootTerm(store string, filter map[string]interface{}, o
 	var indexVal string
 	if opts != nil {
 		indexes := opts.GetIndexes()
+		logger.Info("indexed", "s", indexes)
 		for name := range indexes {
 			if val, ok := filter[name].(string); ok {
 				hasIndex = true
@@ -672,7 +673,7 @@ func (s RethinkStore) GetByFieldsByField(name, val, store string, fields []strin
 }
 
 func (s RethinkStore) BatchFilterDelete(filter []map[string]interface{}, store string, opts ObjectStoreOptions) (err error) {
-	terms := make([]interface{}, 2)
+	terms := make([]interface{}, len(filter))
 	for i, f := range filter {
 		var term = s.getRootTerm(store, f, opts)
 		terms[i] = term
@@ -682,6 +683,12 @@ func (s RethinkStore) BatchFilterDelete(filter []map[string]interface{}, store s
 	if err == r.ErrEmptyResult {
 		return ErrNotFound
 	}
+
+	return
+}
+
+func (s RethinkStore) BatchDelete(ids []interface{}, store string, opts ObjectStoreOptions) (err error) {
+	_, err = r.DB(s.Database).Table(store).GetAll(ids...).Delete(r.DeleteOpts{Durability: "hard"}).RunWrite(s.Session)
 
 	return
 }
