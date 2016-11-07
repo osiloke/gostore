@@ -80,6 +80,7 @@ type ObjectStore interface {
 
 type ObjectRows interface {
 	Next(interface{}) (bool, error)
+	NextRaw() ([]byte, bool)
 	Close()
 	LastError() error
 }

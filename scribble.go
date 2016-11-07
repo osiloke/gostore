@@ -41,6 +41,10 @@ func (s ScribbleRows) Next(dst interface{}) (bool, error) {
 	return true, nil
 }
 
+func (s ScribbleRows) NextRaw() ([]byte, bool) {
+	return nil, false
+}
+
 func (s ScribbleRows) Close() {
 	s.rows = nil
 	s.i = -1

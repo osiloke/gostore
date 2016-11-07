@@ -47,6 +47,9 @@ func (s PostgresRows) Next(dst interface{}) (bool, error) {
 	}
 	return false, nil
 }
+func (s PostgresRows) NextRaw() ([]byte, bool) {
+	return nil, false
+}
 
 func (s PostgresRows) Close() {
 	s.cursor.Close()

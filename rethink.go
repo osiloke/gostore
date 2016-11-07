@@ -1,9 +1,9 @@
 package gostore
 
 import (
-	r "github.com/dancannon/gorethink"
 	"github.com/jinzhu/now"
 	"github.com/mgutz/logxi/v1"
+	r "gopkg.in/dancannon/gorethink.v2"
 	"strings"
 	"time"
 )
@@ -47,7 +47,7 @@ type RethinkRows struct {
 }
 
 func (s RethinkRows) LastError() error {
-	return nil
+	return s.cursor.Err()
 }
 
 func (s RethinkRows) Next(dst interface{}) (bool, error) {
@@ -56,6 +56,11 @@ func (s RethinkRows) Next(dst interface{}) (bool, error) {
 		return false, s.cursor.Err()
 	}
 	return true, nil
+}
+
+func (s RethinkRows) NextRaw() ([]byte, bool) {
+	logger.Info("nextraw", "err", s.cursor.Err())
+	return s.cursor.NextResponse()
 }
 
 func (s RethinkRows) Close() {

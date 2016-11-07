@@ -207,6 +207,10 @@ func (s BoltRows) Next(dst interface{}) (bool, error) {
 	json.Unmarshal(_data, dst)
 	return true, nil
 }
+func (s BoltRows) NextRaw() ([]byte, bool) {
+	return nil, false
+}
+
 func (s BoltRows) LastError() error {
 	return s.lastError
 }
