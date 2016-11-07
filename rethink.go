@@ -59,7 +59,6 @@ func (s RethinkRows) Next(dst interface{}) (bool, error) {
 }
 
 func (s RethinkRows) NextRaw() ([]byte, bool) {
-	logger.Info("nextraw", "err", s.cursor.Err())
 	return s.cursor.NextResponse()
 }
 
