@@ -1,8 +1,8 @@
 package gostore
 
 import (
-	r "github.com/dancannon/gorethink"
 	. "github.com/smartystreets/goconvey/convey"
+	r "gopkg.in/dancannon/gorethink.v2"
 	"testing"
 )
 
@@ -658,6 +658,7 @@ func TestBatchFilterDelete(t *testing.T) {
 		).Delete()).Return(r.WriteResponse{Deleted: 2}, nil)
 
 		mock.On(r.DB("gostore_test").Table("things").OrderBy(r.OrderByOpts{Index: r.Desc("id")}).Count()).Return(1, nil)
+		mock.On(r.DB("gostore_test").Table("things").GetAll("1", "2").Delete(r.DeleteOpts{Durability: "hard"})).Return(r.WriteResponse{Deleted: 2}, nil)
 
 		store := RethinkStore{mock, "gostore_test"}
 		Convey("After creating a things table", func() {
@@ -758,6 +759,7 @@ func TestBatchDelete(t *testing.T) {
 		).Delete()).Return(r.WriteResponse{Deleted: 2}, nil)
 
 		mock.On(r.DB("gostore_test").Table("things").OrderBy(r.OrderByOpts{Index: r.Desc("id")}).Count()).Return(1, nil)
+		mock.On(r.DB("gostore_test").Table("things").GetAll("1", "2").Delete(r.DeleteOpts{Durability: "hard"})).Return(r.WriteResponse{Deleted: 2}, nil)
 
 		store := RethinkStore{mock, "gostore_test"}
 		Convey("After creating a things table", func() {
