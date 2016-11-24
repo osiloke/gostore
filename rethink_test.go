@@ -495,6 +495,23 @@ func TestTransformFilter(t *testing.T) {
 		})
 	})
 }
+
+func TestTransformFilterNestedObject(t *testing.T) {
+	mock := r.NewMock()
+	store := RethinkStore{mock, "gostore_test"}
+	Convey("Given a filter value", t, func() {
+		key := "food.type"
+		val := "~egg|fish"
+		Convey("Determine what conditions to perform on the val", func() {
+			t := store.parseFilterOpsTerm(key, val)
+			So(t.String(), ShouldEqual, `r.Row.Field("food").Field("type").Match("egg").Or(r.Row.Field("food").Field("type").Match("fish"))`)
+
+		})
+
+	})
+
+}
+
 func TestGetRootTermWithoutIndexes(t *testing.T) {
 	Convey("Giving a store", t, func() {
 		mock := r.NewMock()
@@ -663,7 +680,7 @@ func TestBatchFilterDelete(t *testing.T) {
 		store := RethinkStore{mock, "gostore_test"}
 		Convey("After creating a things table", func() {
 			Convey("After inserting two rows", func() {
-
+				// r.Union(r.DB("gostore_test").Table("things").OrderBy(index=r.Desc("id")).Filter(func(var_31 r.Term) r.Term { return r.Row.Field("kind").Field("kind").Eq("thing").And(r.Row.Field("id").Field("id").Eq("1")) }), r.DB("gostore_test").Table("things").OrderBy(index=r.Desc("id")).Filter(func(var_32 r.Term) r.Term { return r.Row.Field("kind").Field("kind").Eq("something").And(r.Row.Field("id").Field("id").Eq("2")) })).Delete()
 				_, err := store.SaveAll(collection, items...)
 				if err != nil {
 					panic(err)

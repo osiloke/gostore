@@ -184,12 +184,18 @@ func parseFilter(args string) (dtarg interface{}) {
 var filterOps TermOperators = TermOperators{
 	"=": func(args ...interface{}) r.Term {
 		var baseTerm r.Term
-		fieldName := args[0].(string)
+		var baseField r.Term
+		if _f, ok := args[0].(r.Term); ok {
+			baseField = _f
+		} else {
+			fieldName := args[0].(string)
+			baseField = r.Row.Field(fieldName)
+		}
 		vals := strings.Split(args[2].(string), "|")
 		if len(vals) > 0 {
-			baseTerm = r.Row.Field(fieldName).Eq(vals[0])
+			baseTerm = baseField.Eq(vals[0])
 			for _, v := range vals[1:] {
-				baseTerm = orTerm(baseTerm, r.Row.Field(fieldName).Eq(v))
+				baseTerm = orTerm(baseTerm, baseField.Eq(v))
 			}
 		} else {
 			baseTerm = baseTerm.Match(vals[0])
@@ -198,12 +204,18 @@ var filterOps TermOperators = TermOperators{
 	},
 	"~": func(args ...interface{}) r.Term {
 		var baseTerm r.Term
-		fieldName := args[0].(string)
+		var baseField r.Term
+		if _f, ok := args[0].(r.Term); ok {
+			baseField = _f
+		} else {
+			fieldName := args[0].(string)
+			baseField = r.Row.Field(fieldName)
+		}
 		vals := strings.Split(args[2].(string), "|")
 		if len(vals) > 0 {
-			baseTerm = r.Row.Field(fieldName).Match(vals[0])
+			baseTerm = baseField.Match(vals[0])
 			for _, v := range vals[1:] {
-				baseTerm = orTerm(baseTerm, r.Row.Field(fieldName).Match(v))
+				baseTerm = orTerm(baseTerm, baseField.Match(v))
 			}
 		} else {
 			baseTerm = baseTerm.Match(vals[0])
@@ -230,13 +242,22 @@ func andTerm(baseTerm r.Term, to r.Term) r.Term {
 
 func (s RethinkStore) parseFilterOpsTerm(key, val string) (t r.Term) {
 	var start int = 1
+	//lets make field key
+	keyUnsplit := strings.Split(strings.Trim(key, "."), ".")
+	_rootField := r.Row.Field(keyUnsplit[0])
+	if len(keyUnsplit) > 1 {
+		for _, v := range keyUnsplit[1:] {
+			_rootField = _rootField.Field(v)
+			// logger.Debug(_rootField.String())
+		}
+	}
 	val_rune := []rune(val)
 	first := string(val_rune[0])
 	if op, ok := filterOps[first]; ok {
 		tv := string([]rune(val)[start:])
-		t = op(key, r.Row.Field(key), tv)
+		t = op(_rootField, _rootField, tv)
 	} else {
-		t = r.Row.Field(key).Eq(val)
+		t = _rootField.Eq(val)
 	}
 	return
 }
