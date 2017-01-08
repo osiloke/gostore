@@ -1,8 +1,8 @@
 package gostore
 
 import (
+	r "github.com/gorethink/gorethink"
 	. "github.com/smartystreets/goconvey/convey"
-	r "gopkg.in/dancannon/gorethink.v2"
 	"testing"
 )
 

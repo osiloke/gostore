@@ -1,9 +1,9 @@
 package gostore
 
 import (
+	r "github.com/gorethink/gorethink"
 	"github.com/jinzhu/now"
 	"github.com/mgutz/logxi/v1"
-	r "gopkg.in/dancannon/gorethink.v2"
 	"strings"
 	"time"
 )
