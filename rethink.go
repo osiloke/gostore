@@ -251,13 +251,17 @@ func (s RethinkStore) parseFilterOpsTerm(key, val string) (t r.Term) {
 			// logger.Debug(_rootField.String())
 		}
 	}
-	val_rune := []rune(val)
-	first := string(val_rune[0])
-	if op, ok := filterOps[first]; ok {
-		tv := string([]rune(val)[start:])
-		t = op(_rootField, _rootField, tv)
+	if val == "" {
+		t = _rootField //.Eq(val)
 	} else {
-		t = _rootField.Eq(val)
+		val_rune := []rune(val)
+		first := string(val_rune[0])
+		if op, ok := filterOps[first]; ok {
+			tv := string([]rune(val)[start:])
+			t = op(_rootField, _rootField, tv)
+		} else {
+			t = _rootField.Eq(val)
+		}
 	}
 	return
 }

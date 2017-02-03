@@ -580,4 +580,35 @@ func (s BoltStore) GetByField(name, val, store string, dst interface{}) error { 
 func (s BoltStore) GetByFieldsByField(name, val, store string, fields []string, dst interface{}) (err error) {
 	return ErrNotImplemented
 }
+
+func (s BoltStore) BatchFilterDelete(filter []map[string]interface{}, store string, opts ObjectStoreOptions) (err error) {
+	return ErrNotImplemented
+}
+
+func (s BoltStore) BatchDelete(ids []interface{}, store string, opts ObjectStoreOptions) (err error) {
+	return ErrNotImplemented
+}
+
+//BatchUpdate updates multiple rows by id
+func (s BoltStore) BatchUpdate(ids []interface{}, data []interface{}, store string, opts ObjectStoreOptions) (err error) {
+	return ErrNotImplemented
+}
+
+func (s BoltStore) BatchFilterUpdate(filter []map[string]interface{}, updateData map[string]interface{}, store string, opts ObjectStoreOptions) (err error) {
+
+	// _, err = r.DB(s.Database).Table(store).GetAll(ids...).Update(func(row r.Term) interface{} {
+	// 	lenArgs := len(ids) * 2
+	// 	args := make([]interface{}, lenArgs+1)
+	// 	for k, v := range ids {
+	// 		first := k * 2
+	// 		second := first + 1
+	// 		args[first] = row.Field("id").Eq(v.(string))
+	// 		args[second] = data[k]
+	// 	}
+	// 	args[lenArgs] = nil
+	// 	return r.Branch(args...)
+	// }, r.UpdateOpts{Durability: "hard"}).RunWrite(s.Session)
+
+	return ErrNotImplemented
+}
 func (s BoltStore) Close() {}

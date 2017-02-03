@@ -93,3 +93,7 @@ type StoreObj interface {
 }
 
 type StoreObjs []StoreObj
+
+type TableConfig struct {
+	NestedBucketFields map[string]string //defines fields to be used to extract nested buckets for data
+}
