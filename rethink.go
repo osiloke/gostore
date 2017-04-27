@@ -7,7 +7,6 @@ import (
 	r "github.com/gorethink/gorethink"
 	"github.com/jinzhu/now"
 	"github.com/mgutz/logxi/v1"
-	"github.com/osiloke/gostore"
 )
 
 var logger = log.New("gostore.rethink")
@@ -762,7 +761,7 @@ func (s RethinkStore) BatchFilterUpdate(filter []map[string]interface{}, updateD
 
 	return ErrNotImplemented
 }
-func (s RethinkStore) BatchInsert(data []interface{}, store string, opts gostore.ObjectStoreOptions) (keys []string, err error) {
+func (s RethinkStore) BatchInsert(data []interface{}, store string, opts ObjectStoreOptions) (keys []string, err error) {
 	return nil, ErrNotImplemented
 }
 func (s RethinkStore) Close() {

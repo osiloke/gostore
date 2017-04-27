@@ -6,7 +6,6 @@ import (
 
 	"github.com/mgutz/logxi/v1"
 	"github.com/nanobox-io/golang-scribble"
-	"github.com/osiloke/gostore"
 )
 
 type ScribbleStore struct {
@@ -177,7 +176,7 @@ func (s ScribbleStore) GetByField(name, val, store string, dst interface{}) erro
 func (s ScribbleStore) GetByFieldsByField(name, val, store string, fields []string, dst interface{}) (err error) {
 	return ErrNotImplemented
 }
-func (s ScribbleStore) BatchInsert(data []interface{}, store string, opts gostore.ObjectStoreOptions) (keys []string, err error) {
+func (s ScribbleStore) BatchInsert(data []interface{}, store string, opts ObjectStoreOptions) (keys []string, err error) {
 	return nil, ErrNotImplemented
 }
 func (s ScribbleStore) Close() {
