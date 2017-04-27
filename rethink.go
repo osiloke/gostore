@@ -1,11 +1,13 @@
 package gostore
 
 import (
+	"strings"
+	"time"
+
 	r "github.com/gorethink/gorethink"
 	"github.com/jinzhu/now"
 	"github.com/mgutz/logxi/v1"
-	"strings"
-	"time"
+	"github.com/osiloke/gostore"
 )
 
 var logger = log.New("gostore.rethink")
@@ -760,7 +762,9 @@ func (s RethinkStore) BatchFilterUpdate(filter []map[string]interface{}, updateD
 
 	return ErrNotImplemented
 }
-
+func (s RethinkStore) BatchInsert(data []interface{}, store string, opts gostore.ObjectStoreOptions) (keys []string, err error) {
+	return nil, ErrNotImplemented
+}
 func (s RethinkStore) Close() {
 	s.Session.(*r.Session).Close()
 }

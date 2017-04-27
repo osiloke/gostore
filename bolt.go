@@ -3,8 +3,10 @@ package gostore
 //TODO: Extract methods into functions
 import (
 	"bytes"
+
 	"github.com/boltdb/bolt"
 	"github.com/dustin/gojson"
+	"github.com/osiloke/gostore"
 	// "github.com/fatih/structs"
 	// "github.com/ventu-io/go-shortid"
 	"log"
@@ -610,5 +612,8 @@ func (s BoltStore) BatchFilterUpdate(filter []map[string]interface{}, updateData
 	// }, r.UpdateOpts{Durability: "hard"}).RunWrite(s.Session)
 
 	return ErrNotImplemented
+}
+func (s BoltStore) BatchInsert(data []interface{}, store string, opts gostore.ObjectStoreOptions) (keys []string, err error) {
+	return nil, ErrNotImplemented
 }
 func (s BoltStore) Close() {}

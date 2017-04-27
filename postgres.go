@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+
 	"github.com/jinzhu/gorm"
 	_ "github.com/lib/pq"
+	"github.com/osiloke/gostore"
 )
 
 type Storage struct {
@@ -377,7 +379,9 @@ func (s PostgresObjectStore) GetByFieldsByField(name, val, store string, fields 
 	json.Unmarshal(row, dst)
 	return nil
 }
-
+func (s PostgresObjectStore) BatchInsert(data []interface{}, store string, opts gostore.ObjectStoreOptions) (keys []string, err error) {
+	return nil, ErrNotImplemented
+}
 func (s PostgresObjectStore) Close() {
 	s.db.Close()
 }
