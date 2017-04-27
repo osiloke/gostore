@@ -1,7 +1,5 @@
 package gostore
 
-import "github.com/osiloke/gostore"
-
 /**
 Store is deprecated
 */
@@ -76,7 +74,7 @@ type ObjectStore interface {
 	BatchDelete(ids []interface{}, store string, opts ObjectStoreOptions) (err error)
 	BatchUpdate(id []interface{}, data []interface{}, store string, opts ObjectStoreOptions) error
 	BatchFilterDelete(filter []map[string]interface{}, store string, opts ObjectStoreOptions) error
-	BatchInsert(data []interface{}, store string, opts gostore.ObjectStoreOptions) (keys []string, err error)
+	BatchInsert(data []interface{}, store string, opts ObjectStoreOptions) (keys []string, err error)
 
 	Close()
 }
