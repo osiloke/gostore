@@ -455,18 +455,19 @@ func (s RethinkStore) Get(id, store string, dst interface{}) (err error) {
 	return nil
 }
 
-func (s RethinkStore) Save(store string, src interface{}) (key string, err error) {
+func (s RethinkStore) Save(key, store string, src interface{}) (string, error) {
 	result, err := r.DB(s.Database).Table(store).Insert(src, r.InsertOpts{Durability: "soft"}).RunWrite(s.Session)
 	if err != nil {
 		if strings.Contains(err.Error(), "Duplicate primary key") {
 			err = ErrDuplicatePk
 		}
-		return
+		return "", err
 	}
+	var newKey string
 	if len(result.GeneratedKeys) > 0 {
-		key = result.GeneratedKeys[0]
+		newKey = result.GeneratedKeys[0]
 	}
-	return
+	return newKey, err
 
 }
 

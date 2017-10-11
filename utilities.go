@@ -2,7 +2,7 @@ package gostore
 
 import (
 	"errors"
-	"log"
+	"fmt"
 	"reflect"
 	"strconv"
 	"time"
@@ -10,7 +10,7 @@ import (
 
 func timeTrack(start time.Time, name string) {
 	elapsed := time.Since(start)
-	log.Printf("%s took %d", name, elapsed)
+	logger.Debug(fmt.Sprintf("%s took %v", name, elapsed))
 }
 func ToInt(str string) (int64, error) {
 	res, err := strconv.ParseInt(str, 0, 64)

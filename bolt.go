@@ -513,25 +513,7 @@ func (s BoltStore) Get(key string, store string, dst interface{}) error {
 	}
 	return nil
 }
-func (s BoltStore) Save(store string, src interface{}) (string, error) {
-	var key string
-	if _v, ok := src.(map[string]interface{}); ok {
-		if k, ok := _v["id"].(string); ok {
-			key = k
-		} else {
-			key = NewObjectId().String()
-		}
-	} else if _v, ok := src.(HasID); ok {
-		key = _v.GetId()
-	} else {
-		// if _key, err := shortid.Generate(); err == nil {
-		// 	key = _key
-		// } else {
-		// 	logger.Error(ErrKeyNotValid.Error(), "err", err)
-		// 	return ErrKeyNotValid
-		// }
-		key = NewObjectId().String()
-	}
+func (s BoltStore) Save(key, store string, src interface{}) (string, error) {
 	data, err := json.Marshal(src)
 	if err != nil {
 		return "", err

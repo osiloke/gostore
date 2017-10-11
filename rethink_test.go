@@ -104,7 +104,7 @@ func TestPut(t *testing.T) {
 			r.UpdateOpts{Durability: "soft"})).Return(r.WriteResponse{GeneratedKeys: []string{"4"}}, nil)
 		store := RethinkStore{mock, "gostore_test"}
 		Convey("After adding things", func() {
-			store.Save(collection, entry)
+			store.Save(entry["id"].(string), collection, entry)
 			Convey("After updating a thing", func() {
 				store.Update("4", collection, map[string]interface{}{"name": "updated name"})
 				Convey("Thing should be updated", func() {
@@ -127,7 +127,7 @@ func TestSave(t *testing.T) {
 		mock.On(r.DB("gostore_test").Table("things").Get("4")).Return(entry, nil)
 		store := RethinkStore{mock, "gostore_test"}
 		Convey("After saving a thing", func() {
-			store.Save(collection, entry)
+			store.Save(entry["id"].(string), collection, entry)
 			Convey("Thing should be updated", func() {
 				var dst map[string]interface{}
 				store.Get("4", collection, &dst)
@@ -153,7 +153,7 @@ func TestRethinkSaveAndGet(t *testing.T) {
 	Convey("Giving a rethink store", t, func() {
 		Convey("After creating a things table", func() {
 			Convey("After inserting one row", func() {
-				store.Save(collection, &entry)
+				store.Save(entry["id"].(string), collection, &entry)
 				Convey("The stored data is retrieved", func() {
 					var storedItem map[string]interface{}
 					store.Get(id, collection, &storedItem)

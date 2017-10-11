@@ -35,8 +35,8 @@ func TestScribbleSave(t *testing.T) {
 		store := NewScribbleStore(path)
 		collection := "shopping"
 		Convey("After inserting some test data", func() {
-			item := map[string]interface{}{"name": "orange", "qty": 10, "price": 4.99}
-			key, _ := store.Save(collection, &item)
+			item := map[string]interface{}{"id": "1", "name": "orange", "qty": 10, "price": 4.99}
+			key, _ := store.Save(item["id"].(string), collection, &item)
 			Convey("The stored data is retrieved", func() {
 				var storedItem map[string]interface{}
 				store.Get(key, collection, &storedItem)
@@ -58,8 +58,8 @@ func TestScribbleDelete(t *testing.T) {
 		store := NewScribbleStore(path)
 		collection := "shopping"
 		Convey("After inserting some test data", func() {
-			item := map[string]interface{}{"name": "orange", "qty": 10, "price": 4.99}
-			key, _ := store.Save(collection, &item)
+			item := map[string]interface{}{"id": "1", "name": "orange", "qty": 10, "price": 4.99}
+			key, _ := store.Save(item["id"].(string), collection, &item)
 			Convey("After deleting the item", func() {
 				store.Delete(key, collection)
 				Convey("Trying to get the deleted key should fail", func() {

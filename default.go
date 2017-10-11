@@ -55,7 +55,7 @@ type ObjectStore interface {
 	FilterBeforeCount(id string, filter map[string]interface{}, count int, skip int, store string, opts ObjectStoreOptions) (int64, error) //Get all existing items before a key
 
 	Get(key string, store string, dst interface{}) error
-	Save(store string, src interface{}) (string, error)
+	Save(key, store string, src interface{}) (string, error)
 	SaveAll(store string, src ...interface{}) (keys []string, err error)
 	Update(key string, store string, src interface{}) error
 	Replace(key string, store string, src interface{}) error

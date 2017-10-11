@@ -114,14 +114,7 @@ func (s ScribbleStore) Get(key string, store string, dst interface{}) error {
 	}
 }
 
-func (s ScribbleStore) Save(store string, src interface{}) (string, error) {
-	var key = NewObjectId().String()
-	if _v, ok := src.(map[string]interface{}); ok {
-		if k, ok := _v["id"].(string); ok {
-			key = k
-		}
-	}
-	log.Debug("saving " + key + " to " + store)
+func (s ScribbleStore) Save(key, store string, src interface{}) (string, error) {
 	if err := s.db.Write(store, key, src); err != nil {
 		return "", err
 	}
