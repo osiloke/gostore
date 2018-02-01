@@ -65,6 +65,7 @@ type ObjectStore interface {
 	FilterReplace(filter map[string]interface{}, src interface{}, store string, opts ObjectStoreOptions) error
 	FilterGet(filter map[string]interface{}, store string, dst interface{}, opts ObjectStoreOptions) error
 	FilterGetAll(filter map[string]interface{}, count int, skip int, store string, opts ObjectStoreOptions) (ObjectRows, error)
+	Query(filter, aggregates map[string]interface{}, count int, skip int, store string, opts ObjectStoreOptions) (ObjectRows, AggregateResult, error)
 	FilterDelete(filter map[string]interface{}, store string, opts ObjectStoreOptions) error
 	FilterCount(filter map[string]interface{}, store string, opts ObjectStoreOptions) (int64, error)
 
@@ -79,6 +80,19 @@ type ObjectStore interface {
 	Close()
 }
 
+type Match struct {
+	Field       string      `json:"field"`
+	Matched     int         `json:"matched"`
+	UnMatched   int         `json:"unmatched"`
+	Missing     int         `json:"missing"`
+	Other       int         `json:"other"`
+	Top         interface{} `json:"top,omitempty"`
+	DateRange   interface{} `json:"dateRange,omitempty"`
+	NumberRange interface{} `json:"numberRange,omitempty"`
+}
+
+type AggregateResult map[string]interface{}
+
 type ObjectRows interface {
 	Next(interface{}) (bool, error)
 	NextRaw() ([]byte, bool)
@@ -86,7 +100,7 @@ type ObjectRows interface {
 	LastError() error
 }
 
-type StoreOptions map[string]interface{}
+type StoreOptions map[string]Match
 
 type StoreObj interface {
 	SetKey(key string)
@@ -98,3 +112,4 @@ type StoreObjs []StoreObj
 type TableConfig struct {
 	NestedBucketFields map[string]string //defines fields to be used to extract nested buckets for data
 }
+
