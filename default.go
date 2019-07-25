@@ -28,11 +28,25 @@ type ObjectStoreOptions interface {
 }
 
 type DefaultObjectStoreOptions struct {
-	Index map[string][]string
+	Index       map[string][]string
+	Transaction Transaction
 }
 
 func (d DefaultObjectStoreOptions) GetIndexes() map[string][]string {
 	return d.Index
+}
+
+func (d DefaultObjectStoreOptions) GetTransaction() Transaction {
+	return d.Transaction
+}
+
+type Transaction interface {
+	Restart() error
+	Commit() error
+	Discard()
+	Set([]byte, []byte) error
+	Get([]byte) ([]byte, error)
+	Delete([]byte) error
 }
 
 //ObjectStore represents all api common to all database implementations
@@ -60,6 +74,13 @@ type ObjectStore interface {
 	Update(key string, store string, src interface{}) error
 	Replace(key string, store string, src interface{}) error
 	Delete(key string, store string) error
+	// Transactions
+
+	// GetTransaction(txn Transaction, key string, store string, dst interface{}) error
+	// SaveTransaction(txn Transaction, key, store string, src interface{}) (string, error)
+	// UpdateTransaction(txn Transaction, key string, store string, src interface{}) error
+	// ReplaceTransaction(txn Transaction, key string, store string, src interface{}) error
+	// DeleteTransaction(txn Transaction, key string, store string) error
 
 	FilterUpdate(filter map[string]interface{}, src interface{}, store string, opts ObjectStoreOptions) error
 	FilterReplace(filter map[string]interface{}, src interface{}, store string, opts ObjectStoreOptions) error
@@ -113,3 +134,14 @@ type TableConfig struct {
 	NestedBucketFields map[string]string //defines fields to be used to extract nested buckets for data
 }
 
+// TransactionStore a store that can perform transactions
+type TransactionStore interface {
+	GetTX(key string, store string, dst interface{}, txn Transaction) error
+	SaveTX(key string, store string, src interface{}, txn Transaction) error
+	DeleteTX(key string, store string, tx Transaction) error
+	FilterGetTX(filter map[string]interface{}, store string, dst interface{}, opts ObjectStoreOptions, tx Transaction) error
+	FilterCount(filter map[string]interface{}, store string, opts ObjectStoreOptions) (int64, error)
+	BatchInsertTX(data []interface{}, store string, opts ObjectStoreOptions, tx Transaction) (keys []string, err error)
+	UpdateTransaction() Transaction
+	FinishTransaction(Transaction) error
+}
