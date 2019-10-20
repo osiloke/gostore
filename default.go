@@ -25,11 +25,13 @@ type Store interface {
 
 type ObjectStoreOptions interface {
 	GetIndexes() map[string][]string
+	GetGeoQuery() *GeoQueryOptions
 }
 
 type DefaultObjectStoreOptions struct {
 	Index       map[string][]string
 	Transaction Transaction
+	GeoQuery    GeoQueryOptions
 }
 
 func (d DefaultObjectStoreOptions) GetIndexes() map[string][]string {
@@ -40,6 +42,10 @@ func (d DefaultObjectStoreOptions) GetTransaction() Transaction {
 	return d.Transaction
 }
 
+func (d DefaultObjectStoreOptions) GetGeoQuery() *GeoQueryOptions {
+	return &d.GeoQuery
+}
+
 type Transaction interface {
 	Restart() error
 	Commit() error
@@ -47,6 +53,11 @@ type Transaction interface {
 	Set([]byte, []byte) error
 	Get([]byte) ([]byte, error)
 	Delete([]byte) error
+}
+
+// GeoQueryOptions defines options for a geoquery enabled store
+type GeoQueryOptions struct {
+	LocationField string
 }
 
 //ObjectStore represents all api common to all database implementations
@@ -99,6 +110,14 @@ type ObjectStore interface {
 	BatchInsert(data []interface{}, store string, opts ObjectStoreOptions) (keys []string, err error)
 
 	Close()
+}
+
+//GeoStore a store that can make geo queries
+type GeoStore interface {
+	SaveWithGeo(key, store string, src interface{}, field string) (string, error)
+	SaveWithGeoTX(key, store string, src interface{}, field string, txn Transaction) error
+	GeoQuery(lon, lat float64, distance string, query map[string]interface{}, count int, skip int, store string, opts ObjectStoreOptions) (ObjectRows, error)
+	// ObjectStore
 }
 
 type Match struct {
