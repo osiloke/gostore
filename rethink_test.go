@@ -1,9 +1,10 @@
 package gostore
 
 import (
+	"testing"
+
 	r "github.com/gorethink/gorethink"
 	. "github.com/smartystreets/goconvey/convey"
-	"testing"
 )
 
 var collection = "things"
@@ -537,7 +538,7 @@ func TestGetRootTermWithIndexes(t *testing.T) {
 		Convey("and a filter", func() {
 			filter := map[string]interface{}{"id": "1", "kind": "thing"}
 			//Indexes should be inserted in order of preference
-			opts := DefaultObjectStoreOptions{map[string][]string{
+			opts := DefaultObjectStoreOptions{Index: map[string][]string{
 				"kind_id": {"kind", "id"},
 				"kind":    {},
 				"id":      {},

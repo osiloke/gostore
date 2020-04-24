@@ -26,12 +26,14 @@ type Store interface {
 type ObjectStoreOptions interface {
 	GetIndexes() map[string][]string
 	GetGeoQuery() *GeoQueryOptions
+	GetOrderBy() []string
 }
 
 type DefaultObjectStoreOptions struct {
 	Index       map[string][]string
 	Transaction Transaction
 	GeoQuery    GeoQueryOptions
+	OrderBy     []string
 }
 
 func (d DefaultObjectStoreOptions) GetIndexes() map[string][]string {
@@ -44,6 +46,10 @@ func (d DefaultObjectStoreOptions) GetTransaction() Transaction {
 
 func (d DefaultObjectStoreOptions) GetGeoQuery() *GeoQueryOptions {
 	return &d.GeoQuery
+}
+
+func (d DefaultObjectStoreOptions) GetOrderBy() []string {
+	return d.OrderBy
 }
 
 type Transaction interface {
