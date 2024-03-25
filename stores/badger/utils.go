@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"strings"
 
-	badgerdb "github.com/dgraph-io/badger"
+	badgerdb "github.com/dgraph-io/badger/v4"
 )
 
 func BadgerDefaultOptions(path string) badgerdb.Options {
