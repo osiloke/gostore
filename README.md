@@ -1,5 +1,7 @@
 GoStore is your applications data swiss knife
 ======
+** NOTE: This project is currently being reworked. The old code can be found in the deprecated folder **
+
 
 [![Build Status](https://travis-ci.org/osiloke/gostore.png)](https://travis-ci.org/osiloke/gostore)
 [![GoDoc](https://godoc.org/github.com/osiloke/gostore?status.svg)](http://godoc.org/github.com/osiloke/gostore)
@@ -56,7 +58,7 @@ store, _ := gostore.NewRethinkObjectStoreAndSession("localhost:28015", "app")
 //Now create the db
 store.CreateDatabase()
 
-//Create the table you want to use, you can pass an optional schema 
+//Create the table you want to use, you can pass an optional schema
 //to do some advanced stuff
 store.CreateTable("things", nil)
 
@@ -92,7 +94,7 @@ Api
 
 ####Retrieval
 
-*	All 
+*	All
 *	AllCursor
 *	AllWithinRange
 *	Get
@@ -136,17 +138,17 @@ Testing rethinkdb store requires a running rethink server. This will be updated 
 ### Contributors on GitHub
 * [Contributors](https://github.com/osiloke/gostore/graphs/contributors)
 
-## License 
+## License
 * see [LICENSE](https://github.com/osiloke/gostore/blob/master/LICENSE.md) file
 
-## Version 
+## Version
 * Version 0.1
 
 ## Contact
 #### Developer/Company
 * Homepage: [osiloke.com](http://osiloke.com "Osiloke Blogs Sometimes")
 * e-mail: me@osiloke.com
-* Twitter: [@osiloke](https://twitter.com/osiloke "osiloke on twitter") 
-* Twitter (Again?): [@osilocks](https://twitter.com/osilocks "osiloke on twitter") 
+* Twitter: [@osiloke](https://twitter.com/osiloke "osiloke on twitter")
+* Twitter (Again?): [@osilocks](https://twitter.com/osilocks "osiloke on twitter")
 
-[![Flattr this git repo](http://api.flattr.com/button/flattr-badge-large.png)](https://flattr.com/submit/auto?user_id=lgxkqk&url=https://github.com/osiloke/gostore&title=gostore&language=golang&tags=github&category=software) 
+[![Flattr this git repo](http://api.flattr.com/button/flattr-badge-large.png)](https://flattr.com/submit/auto?user_id=lgxkqk&url=https://github.com/osiloke/gostore&title=gostore&language=golang&tags=github&category=software)
