@@ -4,6 +4,7 @@ go 1.22.0
 
 require (
 	github.com/blevesearch/bleve/v2 v2.4.0
+	github.com/dgraph-io/badger v1.6.2
 	github.com/dgraph-io/badger/v4 v4.2.0
 	github.com/mgutz/logxi v0.0.0-20161027140823-aebf8a7d67ab
 	github.com/osiloke/gostore-common v0.2.8
@@ -38,7 +39,6 @@ require (
 	github.com/couchbase/ghistogram v0.1.0 // indirect
 	github.com/couchbase/moss v0.3.0 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
-	github.com/dgraph-io/badger v1.6.2 // indirect
 	github.com/dgraph-io/ristretto v0.1.1 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
