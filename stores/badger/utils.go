@@ -6,11 +6,39 @@ import (
 	"strings"
 
 	badgerdb "github.com/dgraph-io/badger/v4"
+	common "github.com/osiloke/gostore-common"
 )
+
+type defaultLog struct {
+	*common.ZerologLogger
+}
+
+func defaultLogger() *defaultLog {
+	return &defaultLog{common.NewZerologLogger("", "name", "badger")}
+}
+
+func (l *defaultLog) Errorf(f string, v ...interface{}) {
+	l.Printf("ERROR: "+f, v...)
+}
+
+func (l *defaultLog) Warningf(f string, v ...interface{}) {
+	l.Printf("WARNING: "+f, v...)
+}
+
+func (l *defaultLog) Infof(f string, v ...interface{}) {
+	l.Printf("INFO: "+f, v...)
+}
+
+func (l *defaultLog) Debugf(f string, v ...interface{}) {
+	l.Printf("DEBUG: "+f, v...)
+}
 
 func BadgerDefaultOptions(path string) badgerdb.Options {
 	opt := badgerdb.DefaultOptions(path)
-	opt.SyncWrites = true
+	// .WithCompression(options.ZSTD)
+	opt.BlockCacheSize = 1024
+	opt.Logger = defaultLogger()
+	// opt.SyncWrites = true
 	// opt.MaxLevels = 3
 	return opt
 }
