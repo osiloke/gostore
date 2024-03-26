@@ -76,7 +76,7 @@ func runValueLogGC(db *badgerdb.DB) {
 
 func (s *BadgerStore) setupTicker() {
 	done := make(chan bool)
-	ticker := time.NewTicker(1 * time.Minute)
+	ticker := time.NewTicker(5 * time.Minute)
 	s.done = done
 	s.t = ticker
 	go func() {
