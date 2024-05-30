@@ -323,7 +323,9 @@ func (s *BadgerStore) GetStore() interface{} {
 
 // UpdateTransaction starts an update transaction
 func (s *BadgerStore) UpdateTransaction() common.Transaction {
-	return &BadgerTransaction{s.Db, s.Db.NewTransaction(true), "update"}
+	txn := BadgerTransaction{s.Db, nil, "update"}
+	txn.Restart()
+	return &txn
 }
 
 // FinishTransaction ebds transaction
@@ -1046,7 +1048,7 @@ func (s *BadgerStore) Query(query, aggregates map[string]interface{}, count int,
 			}
 		}
 		if len(aggregates) == 0 {
-			logger.Info("Query", "count", count, "skip", skip, "Store", store, "query", q, "order", order)
+			logger.Info("Query", "count", count, "skip", skip, "Store", store, "query", q, "opts", opts)
 			res, err = s.Indexer.QueryWithOptions(q, count, skip, true, []string{}, order)
 
 		} else {
@@ -1315,6 +1317,9 @@ func (s *BadgerStore) BatchInsert(data []interface{}, store string, opts common.
 		keys[i] = key
 	}
 	if err2 := txn.Commit(); err2 != nil {
+		if strings.Contains(err2.Error(), "Transaction Conflict") {
+			return nil, common.ErrTransactionConflict
+		}
 		return nil, err2
 	}
 	err = s.Indexer.Batch(b)
@@ -1353,11 +1358,16 @@ func (s *BadgerStore) BatchInsertTX(data []interface{}, store string, opts commo
 		keys[i] = key
 	}
 	if err2 := txn.Commit(); err2 != nil {
+		if strings.Contains(err2.Error(), "Transaction Conflict") {
+			return nil, common.ErrTransactionConflict
+		}
 		return nil, err2
 	}
+	logger.Debug("BatchTX Committed")
 	if err = txn.Restart(); err != nil {
 		return
 	}
+	logger.Debug("BatchTX Restarted")
 	err = s.Indexer.Batch(b)
 	return
 }
