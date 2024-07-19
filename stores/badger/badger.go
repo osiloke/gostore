@@ -20,8 +20,8 @@ import (
 	"github.com/blevesearch/bleve/v2/search"
 	badgerdb "github.com/dgraph-io/badger/v4"
 	log "github.com/mgutz/logxi/v1"
-	common "github.com/osiloke/gostore-common"
-	indexer "github.com/osiloke/gostore-indexer"
+	common "github.com/osiloke/gostore/common"
+	indexer "github.com/osiloke/gostore/indexer"
 	"github.com/xiam/to"
 )
 

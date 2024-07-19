@@ -3,7 +3,7 @@ package badger
 import (
 	"encoding/json"
 
-	common "github.com/osiloke/gostore-common"
+	common "github.com/osiloke/gostore/common"
 )
 
 // //BadgerRows handles pulling row items in a goroutine

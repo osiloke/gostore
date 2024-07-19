@@ -5,7 +5,7 @@ import (
 
 	"github.com/blevesearch/bleve/v2"
 	"github.com/blevesearch/bleve/v2/index/upsidedown"
-	badger "github.com/osiloke/gostore-indexer/badger"
+	badger "github.com/osiloke/gostore/indexer/badger"
 
 	"github.com/blevesearch/bleve/v2/mapping"
 )

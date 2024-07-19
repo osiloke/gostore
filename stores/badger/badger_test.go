@@ -15,8 +15,8 @@ import (
 	"github.com/blevesearch/bleve/v2/analysis/token/lowercase"
 	rtoken "github.com/blevesearch/bleve/v2/analysis/tokenizer/regexp"
 	"github.com/blevesearch/bleve/v2/search"
-	common "github.com/osiloke/gostore-common"
-	indexer "github.com/osiloke/gostore-indexer"
+	common "github.com/osiloke/gostore/common"
+	indexer "github.com/osiloke/gostore/indexer"
 	"github.com/stretchr/testify/assert"
 )
 

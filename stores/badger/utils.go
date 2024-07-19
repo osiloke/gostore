@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	badgerdb "github.com/dgraph-io/badger/v4"
-	common "github.com/osiloke/gostore-common"
+	common "github.com/osiloke/gostore/common"
 )
 
 type defaultLog struct {

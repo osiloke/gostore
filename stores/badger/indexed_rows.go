@@ -6,7 +6,7 @@ import (
 	"sync"
 
 	"github.com/blevesearch/bleve/v2"
-	common "github.com/osiloke/gostore-common"
+	common "github.com/osiloke/gostore/common"
 )
 
 type NextItem struct {
