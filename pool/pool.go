@@ -28,6 +28,9 @@ func (o *ObjectStoreItem) Release() {
 	o.mu.Lock()
 	o.mu.Unlock()
 	o.UsageCount--
+	if o.UsageCount == 0 && o.Removed {
+		o.Store.Close()
+	}
 }
 
 type ObjectPool struct {
@@ -138,6 +141,9 @@ func (p *ObjectPool) removeLeastUsed() error {
 	}
 
 	leastUsed.mu.Lock()
+	if leastUsed.UsageCount == 0 {
+		leastUsed.Store.Close()
+	}
 	leastUsed.Removed = true
 	leastUsed.mu.Unlock()
 
@@ -207,4 +213,15 @@ func (p *ObjectPool) CloseAndRemove(name string) error {
 	item.Removed = true
 	delete(p.items, name)
 	return nil
+}
+
+func (p *ObjectPool) Destroy() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for k, item := range p.items {
+		item.Store.Close()
+
+		item.Removed = true
+		delete(p.items, k)
+	}
 }

@@ -7,17 +7,16 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"time"
 
 	_ "github.com/lib/pq"
-	. "github.com/osiloke/gostore/common"
 	common "github.com/osiloke/gostore/common"
 	"github.com/stripe/pg-schema-diff/pkg/diff"
 	"github.com/stripe/pg-schema-diff/pkg/tempdb"
-	"gorm.io/driver/postgres"
+	postgres_driver "gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 	gorm_logger "gorm.io/gorm/logger"
+	"gorm.io/plugin/opentelemetry/tracing"
 )
 
 var logger = common.Logger("postgres")
@@ -37,18 +36,22 @@ func NewPostgresObjectStore(dsn string) *PostgresObjectStore {
 	newLogger := gorm_logger.New(
 		log.New(os.Stdout, "\r\n", log.LstdFlags), // io writer
 		gorm_logger.Config{
-			SlowThreshold:             time.Second,        // Slow SQL threshold
+			// SlowThreshold:             time.Second,        // Slow SQL threshold
 			LogLevel:                  gorm_logger.Silent, // Log level
 			IgnoreRecordNotFoundError: true,               // Ignore ErrRecordNotFound error for logger
 			ParameterizedQueries:      true,               // Don't include params in the SQL log
 			Colorful:                  false,              // Disable color
 		},
 	)
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{
+	db, err := gorm.Open(postgres_driver.Open(dsn), &gorm.Config{
 		PrepareStmt: true,
-		Logger:      newLogger,
+		// SkipDefaultTransaction: true,
+		Logger: newLogger,
 	})
 	if err != nil {
+		panic(err)
+	}
+	if err := db.Use(tracing.NewPlugin()); err != nil {
 		panic(err)
 	}
 	s := PostgresObjectStore{db, dsn}
@@ -187,9 +190,9 @@ func (s PostgresObjectStore) CreateTable(store string, config interface{}) (err 
 }
 
 // Query retrieves documents matching a filter and calculates aggregations.
-func (s PostgresObjectStore) Query(filter, aggregates map[string]interface{}, count int, skip int, store string, opts ObjectStoreOptions) (ObjectRows, AggregateResult, error) {
+func (s PostgresObjectStore) Query(filter, aggregates map[string]interface{}, count int, skip int, store string, opts common.ObjectStoreOptions) (common.ObjectRows, common.AggregateResult, error) {
 	rows, err := s.FilterGetAll(filter, count, skip, store, opts)
-	return rows, AggregateResult{}, err
+	return rows, common.AggregateResult{}, err
 }
 
 func (s PostgresObjectStore) All(count int, skip int, store string) (prows common.ObjectRows, err error) {
@@ -209,11 +212,11 @@ func (s PostgresObjectStore) AllCursor(store string) (common.ObjectRows, error) 
 	//	}
 	//	defer result.Close()
 	//	return RethinkRows{result}, nil
-	return nil, ErrNotImplemented
+	return nil, common.ErrNotImplemented
 }
 
 func (s PostgresObjectStore) AllWithinRange(filter map[string]interface{}, count int, skip int, store string, opts common.ObjectStoreOptions) (common.ObjectRows, error) {
-	return nil, ErrNotImplemented
+	return nil, common.ErrNotImplemented
 }
 
 func (s PostgresObjectStore) Get(id, store string, dst interface{}) (err error) {
@@ -224,7 +227,7 @@ func (s PostgresObjectStore) Get(id, store string, dst interface{}) (err error) 
 	var row []byte
 	err = result.Row().Scan(&row)
 	if err == sql.ErrNoRows {
-		return ErrNotFound
+		return common.ErrNotFound
 	}
 	json.Unmarshal(row, dst)
 	return nil
@@ -237,7 +240,7 @@ func (s PostgresObjectStore) Before(id string, count int, skip int, store string
 	rows, err = s.db.Table(safeStoreName(store)).Select("*").Where("id < ?", id).Limit(count).Offset(skip).Rows()
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return nil, ErrNotFound
+			return nil, common.ErrNotFound
 		}
 		return
 	}
@@ -252,7 +255,7 @@ func (s PostgresObjectStore) Since(id string, count, skip int, store string) (pr
 	rows, err = s.db.Table(safeStoreName(store)).Select("*").Where("id > ?", id).Limit(count).Offset(skip).Rows()
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return nil, ErrNotFound
+			return nil, common.ErrNotFound
 		}
 		return
 	}
@@ -261,15 +264,15 @@ func (s PostgresObjectStore) Since(id string, count, skip int, store string) (pr
 }
 
 func (s PostgresObjectStore) FilterBefore(id string, filter map[string]interface{}, count int, skip int, store string, opts common.ObjectStoreOptions) (rows common.ObjectRows, err error) {
-	return nil, ErrNotImplemented
+	return nil, common.ErrNotImplemented
 }
 
 func (s PostgresObjectStore) FilterBeforeCount(id string, filter map[string]interface{}, count int, skip int, store string, opts common.ObjectStoreOptions) (int64, error) {
-	return 0, ErrNotImplemented
+	return 0, common.ErrNotImplemented
 }
 
 func (s PostgresObjectStore) FilterSince(id string, filter map[string]interface{}, count int, skip int, store string, opts common.ObjectStoreOptions) (rows common.ObjectRows, err error) {
-	return nil, ErrNotImplemented
+	return nil, common.ErrNotImplemented
 }
 
 type tableName struct {
@@ -289,7 +292,7 @@ func (s PostgresObjectStore) Save(key, store string, src interface{}) (string, e
 	if result.Error != nil {
 		err = result.Error
 		if err == sql.ErrNoRows {
-			return "", ErrNotFound
+			return "", common.ErrNotFound
 		}
 	}
 	return key, err
@@ -322,7 +325,7 @@ func (s PostgresObjectStore) Update(id string, store string, src interface{}) (e
 	if data, err = json.Marshal(src); err == nil {
 		err = s.db.Table(safeStoreName(store)).Where("id = ?", id).Updates(data).Error
 		if err == sql.ErrNoRows {
-			return ErrNotFound
+			return common.ErrNotFound
 		}
 	}
 
@@ -335,7 +338,7 @@ func (s PostgresObjectStore) Replace(id string, store string, src interface{}) (
 	if data, err = json.Marshal(src); err == nil {
 		err = s.db.Table(safeStoreName(store)).Where("id = ?", id).Updates(data).Error
 		if err == sql.ErrNoRows {
-			return ErrNotFound
+			return common.ErrNotFound
 		}
 	}
 
@@ -358,7 +361,7 @@ func (s PostgresObjectStore) Stats(store string) (map[string]interface{}, error)
 	result := s.db.Table(safeStoreName(store)).Count(&cnt)
 	if result.Error != nil {
 		if result.Error == sql.ErrNoRows {
-			return nil, ErrNotFound
+			return nil, common.ErrNotFound
 		}
 		return nil, result.Error
 	}
@@ -377,10 +380,10 @@ func (f QueryField) MarshalJSON() ([]byte, error) {
 }
 
 func (s PostgresObjectStore) FilterUpdate(filter map[string]interface{}, src interface{}, store string, opts common.ObjectStoreOptions) (err error) {
-	return ErrNotImplemented
+	return common.ErrNotImplemented
 }
 func (s PostgresObjectStore) FilterReplace(filter map[string]interface{}, src interface{}, store string, opts common.ObjectStoreOptions) (err error) {
-	return ErrNotImplemented
+	return common.ErrNotImplemented
 }
 
 func (s PostgresObjectStore) FilterGet(filter map[string]interface{}, store string, dst interface{}, opts common.ObjectStoreOptions) (err error) {
@@ -390,7 +393,7 @@ func (s PostgresObjectStore) FilterGet(filter map[string]interface{}, store stri
 	if err == nil {
 		prows := &PostgresRows{rows}
 		if ok, err = prows.Next(dst); !ok {
-			err = ErrNotFound
+			err = common.ErrNotFound
 		}
 	}
 	return err
@@ -399,10 +402,16 @@ func (s PostgresObjectStore) FilterGet(filter map[string]interface{}, store stri
 func (s PostgresObjectStore) FilterGetAll(filter map[string]interface{}, count int, skip int, store string, opts common.ObjectStoreOptions) (prows common.ObjectRows, err error) {
 	// sfilter, _ := json.Marshal(filter)
 	logger.Debug("FilterGetAll", "store", store, "filter", filter, "count", count, "skip", skip, "opts", opts)
-	rows, err := s.db.Table(safeStoreName(store)).Select("*").Where(filter).Limit(count).Offset(skip).Rows()
+	rows, err := s.db.Table(safeStoreName(store)).
+		// Clauses(hints.UseIndex(fmt.Sprintf("%s_pkey", store))).
+		Select("*").
+		Where(filter).
+		Limit(count).
+		Offset(skip).
+		Rows()
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return nil, ErrNotFound
+			return nil, common.ErrNotFound
 		}
 		return
 	}
@@ -410,17 +419,17 @@ func (s PostgresObjectStore) FilterGetAll(filter map[string]interface{}, count i
 	return
 }
 func (s PostgresObjectStore) BatchDelete(ids []interface{}, store string, opts common.ObjectStoreOptions) (err error) {
-	return ErrNotImplemented
+	return common.ErrNotImplemented
 }
 func (s PostgresObjectStore) BatchUpdate(id []interface{}, data []interface{}, store string, opts common.ObjectStoreOptions) (err error) {
-	return ErrNotImplemented
+	return common.ErrNotImplemented
 }
 func (s PostgresObjectStore) FilterDelete(filter map[string]interface{}, store string, opts common.ObjectStoreOptions) (err error) {
-	return ErrNotImplemented
+	return common.ErrNotImplemented
 }
 
 func (s PostgresObjectStore) BatchFilterDelete(filter []map[string]interface{}, store string, opts common.ObjectStoreOptions) error {
-	return ErrNotImplemented
+	return common.ErrNotImplemented
 }
 func (s PostgresObjectStore) FilterCount(filter map[string]interface{}, store string, opts common.ObjectStoreOptions) (int64, error) {
 	var cnt int64
@@ -428,7 +437,7 @@ func (s PostgresObjectStore) FilterCount(filter map[string]interface{}, store st
 	result := s.db.Table(safeStoreName(store)).Where(q).Count(&cnt)
 	if result.Error != nil {
 		if result.Error == sql.ErrNoRows {
-			return 0, ErrNotFound
+			return 0, common.ErrNotFound
 		}
 		return 0, result.Error
 	}
@@ -444,7 +453,7 @@ func (s PostgresObjectStore) GetByField(name, val, store string, dst interface{}
 	var row []byte
 	err = result.Row().Scan(&row)
 	if err == sql.ErrNoRows {
-		return ErrNotFound
+		return common.ErrNotFound
 	}
 	logger.Debug("Err if any", "err", err)
 	json.Unmarshal(row, dst)
@@ -459,13 +468,13 @@ func (s PostgresObjectStore) GetByFieldsByField(name, val, store string, fields 
 	var row []byte
 	err = result.Row().Scan(&row)
 	if err == sql.ErrNoRows {
-		return ErrNotFound
+		return common.ErrNotFound
 	}
 	json.Unmarshal(row, dst)
 	return nil
 }
 func (s PostgresObjectStore) BatchInsert(data []interface{}, store string, opts common.ObjectStoreOptions) (keys []string, err error) {
-	return nil, ErrNotImplemented
+	return nil, common.ErrNotImplemented
 }
 func (s PostgresObjectStore) Close() {
 	if db, err := s.db.DB(); err != nil {

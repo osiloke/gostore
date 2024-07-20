@@ -7,6 +7,7 @@ require (
 	github.com/blevesearch/bleve/v2 v2.4.0
 	github.com/dgraph-io/badger v1.6.2
 	github.com/mgutz/logxi v0.0.0-20161027140823-aebf8a7d67ab
+	github.com/osiloke/gostore/common v0.0.0-20240719162349-fe2217882b55
 	github.com/smartystreets/goconvey v1.8.1
 	github.com/stretchr/testify v1.9.0
 )

@@ -6,8 +6,8 @@ require (
 	github.com/blevesearch/bleve/v2 v2.4.0
 	github.com/dgraph-io/badger/v4 v4.2.0
 	github.com/mgutz/logxi v0.0.0-20161027140823-aebf8a7d67ab
-	github.com/osiloke/gostore/common v0.2.8
-	github.com/osiloke/gostore/indexer v0.2.8
+	github.com/osiloke/gostore/common v0.0.0-20240719162349-fe2217882b55
+	github.com/osiloke/gostore/indexer v0.0.0-20240719162349-fe2217882b55
 	github.com/stretchr/testify v1.9.0
 	github.com/xiam/to v0.0.0-20200126224905-d60d31e03561
 )
@@ -50,7 +50,7 @@ require (
 	github.com/google/flatbuffers v24.3.7+incompatible // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/klauspost/compress v1.17.7 // indirect
-	github.com/kr/pretty v0.3.1 // indirect
+	github.com/kr/text v0.2.0 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mgutz/ansi v0.0.0-20200706080929-d51e80ef957d // indirect
@@ -59,13 +59,12 @@ require (
 	github.com/mschoch/smat v0.2.0 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
+	github.com/rogpeppe/go-internal v1.9.0 // indirect
 	github.com/rs/zerolog v1.33.0 // indirect
 	go.etcd.io/bbolt v1.3.9 // indirect
 	go.opencensus.io v0.24.0 // indirect
 	golang.org/x/net v0.25.0 // indirect
-	golang.org/x/sync v0.7.0 // indirect
 	golang.org/x/sys v0.22.0 // indirect
 	google.golang.org/protobuf v1.33.0 // indirect
-	gopkg.in/check.v1 v1.0.0-20201130134442-10cb98267c6c // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
