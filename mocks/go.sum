@@ -1,4 +1,2 @@
-github.com/osiloke/gostore v0.2.10 h1:SsWDNYwNRdGCXC6XBBrntxdU1HflMCGtAgCcLRQr9sU=
-github.com/osiloke/gostore v0.2.10/go.mod h1:58B8IU9dnY+lLrnuDywKVeIc7UTBrio+mbRhsd95nEc=
 go.uber.org/mock v0.4.0 h1:VcM4ZOtdbR4f6VXfiOpwpVJDL6lCReaZ6mw31wqh7KU=
 go.uber.org/mock v0.4.0/go.mod h1:a6FSlNadKUHUa9IP5Vyt1zh4fC7uAwxMutEAscFbkZc=
