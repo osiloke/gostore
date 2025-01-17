@@ -134,11 +134,17 @@ type Match struct {
 
 type AggregateResult map[string]interface{}
 
+// ObjectRows is the cursor for the current query
 type ObjectRows interface {
 	Next(interface{}) (bool, error)
 	NextRaw() ([]byte, bool)
 	Close()
 	LastError() error
+}
+
+// Rows that can return query total
+type HasTotal interface {
+	Total() int64
 }
 
 type StoreOptions map[string]Match
