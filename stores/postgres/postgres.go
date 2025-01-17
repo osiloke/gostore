@@ -44,7 +44,8 @@ func NewPostgresObjectStore(dsn string) *PostgresObjectStore {
 		},
 	)
 	db, err := gorm.Open(postgres_driver.Open(dsn), &gorm.Config{
-		PrepareStmt: true,
+		// PrepareStmt: true,
+
 		// SkipDefaultTransaction: true,
 		Logger: newLogger,
 	})
@@ -61,6 +62,7 @@ func NewPostgresObjectStore(dsn string) *PostgresObjectStore {
 
 type PostgresRows struct {
 	cursor *sql.Rows
+	total  int64
 }
 
 func (s *PostgresRows) LastError() error {
@@ -112,6 +114,9 @@ func (s *PostgresRows) Next(dst interface{}) (ok bool, err error) {
 }
 func (s *PostgresRows) NextRaw() ([]byte, bool) {
 	return nil, false
+}
+func (s *PostgresRows) Total() int64 {
+	return s.total
 }
 
 func (s *PostgresRows) Close() {
@@ -197,11 +202,12 @@ func (s PostgresObjectStore) Query(filter, aggregates map[string]interface{}, co
 
 func (s PostgresObjectStore) All(count int, skip int, store string) (prows common.ObjectRows, err error) {
 	var rows *sql.Rows
-	rows, err = s.db.Table(safeStoreName(store)).Select("*").Limit(count).Offset(skip).Rows()
+	var total int64
+	rows, err = s.db.Table(safeStoreName(store)).Select("*").Count(&total).Limit(count).Offset(skip).Rows()
 	if err != nil {
 		return
 	}
-	prows = &PostgresRows{rows}
+	prows = &PostgresRows{cursor: rows, total: total}
 	return
 }
 
@@ -237,14 +243,15 @@ func (s PostgresObjectStore) Get(id, store string, dst interface{}) (err error) 
 // [1, 2, 3, 4], before 2 will return [3, 4]
 func (s PostgresObjectStore) Before(id string, count int, skip int, store string) (prows common.ObjectRows, err error) {
 	var rows *sql.Rows
-	rows, err = s.db.Table(safeStoreName(store)).Select("*").Where("id < ?", id).Limit(count).Offset(skip).Rows()
+	var total int64
+	rows, err = s.db.Table(safeStoreName(store)).Select("*").Where("id < ?", id).Count(&total).Limit(count).Offset(skip).Rows()
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, common.ErrNotFound
 		}
 		return
 	}
-	prows = &PostgresRows{rows}
+	prows = &PostgresRows{cursor: rows, total: total}
 	return
 }
 
@@ -252,14 +259,15 @@ func (s PostgresObjectStore) Before(id string, count int, skip int, store string
 // [1, 2, 3, 4], since 2 will return [1]
 func (s PostgresObjectStore) Since(id string, count, skip int, store string) (prows common.ObjectRows, err error) {
 	var rows *sql.Rows
-	rows, err = s.db.Table(safeStoreName(store)).Select("*").Where("id > ?", id).Limit(count).Offset(skip).Rows()
+	var total int64
+	rows, err = s.db.Table(safeStoreName(store)).Select("*").Where("id > ?", id).Count(&total).Limit(count).Offset(skip).Rows()
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, common.ErrNotFound
 		}
 		return
 	}
-	prows = &PostgresRows{rows}
+	prows = &PostgresRows{cursor: rows, total: total}
 	return
 }
 
@@ -273,14 +281,6 @@ func (s PostgresObjectStore) FilterBeforeCount(id string, filter map[string]inte
 
 func (s PostgresObjectStore) FilterSince(id string, filter map[string]interface{}, count int, skip int, store string, opts common.ObjectStoreOptions) (rows common.ObjectRows, err error) {
 	return nil, common.ErrNotImplemented
-}
-
-type tableName struct {
-	name string
-}
-
-func (t *tableName) TableName() string {
-	return t.name
 }
 
 func (s PostgresObjectStore) Save(key, store string, src interface{}) (string, error) {
@@ -391,7 +391,7 @@ func (s PostgresObjectStore) FilterGet(filter map[string]interface{}, store stri
 	q := filter["q"].(map[string]interface{})
 	rows, err := s.db.Table(safeStoreName(store)).Select("*").Where(q).Limit(1).Rows()
 	if err == nil {
-		prows := &PostgresRows{rows}
+		prows := &PostgresRows{cursor: rows}
 		if ok, err = prows.Next(dst); !ok {
 			err = common.ErrNotFound
 		}
@@ -400,12 +400,13 @@ func (s PostgresObjectStore) FilterGet(filter map[string]interface{}, store stri
 }
 
 func (s PostgresObjectStore) FilterGetAll(filter map[string]interface{}, count int, skip int, store string, opts common.ObjectStoreOptions) (prows common.ObjectRows, err error) {
-	// sfilter, _ := json.Marshal(filter)
+	var total int64
 	logger.Debug("FilterGetAll", "store", store, "filter", filter, "count", count, "skip", skip, "opts", opts)
 	rows, err := s.db.Table(safeStoreName(store)).
 		// Clauses(hints.UseIndex(fmt.Sprintf("%s_pkey", store))).
 		Select("*").
 		Where(filter).
+		Count(&total).
 		Limit(count).
 		Offset(skip).
 		Rows()
@@ -415,7 +416,7 @@ func (s PostgresObjectStore) FilterGetAll(filter map[string]interface{}, count i
 		}
 		return
 	}
-	prows = &PostgresRows{rows}
+	prows = &PostgresRows{cursor: rows, total: total}
 	return
 }
 func (s PostgresObjectStore) BatchDelete(ids []interface{}, store string, opts common.ObjectStoreOptions) (err error) {
