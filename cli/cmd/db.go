@@ -18,6 +18,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/gosimple/slug"
@@ -69,17 +70,6 @@ var dbCmd = &cobra.Command{
 					for it.Rewind(); it.Valid(); it.Next() {
 						item := it.Item()
 						k := item.Key()
-						// obj := make([][]byte, 2)
-						// err := item.Value(func(v []byte) error {
-						// 	obj[1] = append([]byte{}, v...)
-						// 	return nil
-						// })
-						// if err != nil {
-						// 	return err
-						// }
-						// objs = append(objs, obj)
-						// obj[0] = make([]byte, len(k))
-						// copy(obj[0], k)
 						key := string(k)
 						fmt.Println(key)
 					}
@@ -92,7 +82,7 @@ var dbCmd = &cobra.Command{
 		case "getAll":
 			rows, err := db.All(count, 0, store)
 			if err != nil {
-				fmt.Println(err.Error())
+				fmt.Fprintf(os.Stderr, "Error retrieving all records: %v\n", err)
 				return
 			}
 			jrows := make([]map[string]interface{}, 0)
@@ -126,10 +116,10 @@ var dbCmd = &cobra.Command{
 			if err != nil {
 				fmt.Println(err.Error())
 			}
-			fmt.Println(fmt.Sprintf("%s = %v", key, _data))
+			fmt.Printf("%s = %v\n", key, _data)
 		case "create":
 			_data := make(map[string]interface{})
-			err = json.Unmarshal([]byte(data), _data)
+			err = json.Unmarshal([]byte(data), &_data)
 			if err != nil {
 				fmt.Println(err.Error())
 				break
@@ -164,6 +154,59 @@ var dbCmd = &cobra.Command{
 				break
 			}
 			fmt.Println(key + " deleted")
+		case "getPrefixes":
+			if d, ok := db.(*badger.BadgerStore); ok {
+				uniquePrefixes := make(map[string]struct{})
+				err := d.Db.View(func(txn *badgerdb.Txn) error {
+					opts := badgerdb.DefaultIteratorOptions
+					opts.PrefetchValues = true
+					it := txn.NewIterator(opts)
+					defer it.Close()
+
+					for it.Rewind(); it.Valid(); it.Next() {
+						item := it.Item()
+						k := item.Key()
+						key := string(k)
+						parts := strings.Split(key, "|")
+						prefix := parts[0]
+						uniquePrefixes[prefix] = struct{}{}
+					}
+
+					return nil
+				})
+				if err != nil {
+					fmt.Println(err)
+					return
+				}
+
+				// Print unique prefixes
+				for prefix := range uniquePrefixes {
+					fmt.Println(prefix)
+				}
+			}
+		case "findPrefix":
+			if d, ok := db.(*badger.BadgerStore); ok {
+				err := d.Db.View(func(txn *badgerdb.Txn) error {
+					opts := badgerdb.DefaultIteratorOptions
+					opts.PrefetchValues = true
+					it := txn.NewIterator(opts)
+					defer it.Close()
+
+					for it.Rewind(); it.Valid(); it.Next() {
+						item := it.Item()
+						k := item.Key()
+						id := strings.Split(string(k), "$")
+						if strings.HasPrefix(id[1], key) {
+							fmt.Println(id, key)
+						}
+					}
+
+					return nil
+				})
+				if err != nil {
+					fmt.Println(err)
+				}
+			}
 		}
 
 	},
@@ -183,7 +226,7 @@ func init() {
 	// dbCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
 	dbCmd.Flags().StringVarP(&path, "path", "p", "./db", "path to gostore data folder")
 	dbCmd.Flags().StringVarP(&name, "type", "t", "BADGER", "type of gostore")
-	dbCmd.Flags().StringVarP(&action, "action", "a", "get", "action to perform: get, getAll, create, update, delete, keys")
+	dbCmd.Flags().StringVarP(&action, "action", "a", "get", "action to perform: get, getAll, create, update, delete, keys, getPrefixes, findPrefix")
 	dbCmd.Flags().StringVarP(&key, "key", "k", "", "key to operate on")
 	dbCmd.Flags().StringVarP(&data, "data", "d", "", "data to create")
 	dbCmd.Flags().StringVarP(&dataFile, "dataFile", "i", "", "data to create")
