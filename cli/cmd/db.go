@@ -14,6 +14,7 @@
 package cmd
 
 import (
+	"encoding/csv"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -32,9 +33,8 @@ import (
 )
 
 var (
-	path, name, action, data, dataFile, key, store string
-	count                                          int
-	csv                                            bool
+	path, name, action, data, dataFile, key, store, output string
+	count                                                  int
 )
 
 func getStore(name, path string) (gostore.ObjectStore, error) {
@@ -43,6 +43,47 @@ func getStore(name, path string) (gostore.ObjectStore, error) {
 		return badger.New(path)
 	}
 	return nil, errors.New("No store named " + name)
+}
+
+func writeCSV(data []map[string]interface{}, filename string) error {
+	if len(data) == 0 {
+		return errors.New("no data to write")
+	}
+
+	file, err := os.Create(filename)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	writer := csv.NewWriter(file)
+	defer writer.Flush()
+
+	// Write CSV header
+	header := make([]string, 0, len(data[0]))
+	for key := range data[0] {
+		header = append(header, key)
+	}
+	if err := writer.Write(header); err != nil {
+		return err
+	}
+
+	// Write CSV rows
+	for _, row := range data {
+		record := make([]string, len(header))
+		for i, key := range header {
+			if value, ok := row[key]; ok {
+				record[i] = fmt.Sprintf("%v", value)
+			} else {
+				record[i] = ""
+			}
+		}
+		if err := writer.Write(record); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // dbCmd represents the db command
@@ -105,7 +146,24 @@ var dbCmd = &cobra.Command{
 			if err != nil {
 				panic(err)
 			}
-			os.WriteFile(fmt.Sprintf("%s-%v.json", store, slug.Make(path+string(time.Now().String()))), []byte(stringRows), 0644)
+			filename := fmt.Sprintf("%s-%v", store, slug.Make(path+string(time.Now().String())))
+			if output == "csv" {
+				fmt.Println("Writing output to CSV file")
+				err = writeCSV(jrows, filename+".csv")
+				if err != nil {
+					fmt.Printf("Error writing CSV file: %v\n", err)
+				} else {
+					fmt.Println("CSV file written successfully")
+				}
+			} else {
+				fmt.Println("Writing output to JSON file")
+				err = os.WriteFile(filename+".json", []byte(stringRows), 0644)
+				if err != nil {
+					fmt.Printf("Error writing JSON file: %v\n", err)
+				} else {
+					fmt.Println("JSON file written successfully")
+				}
+			}
 		case "get":
 			_data := make(map[string]interface{})
 			if err != nil {
@@ -148,12 +206,19 @@ var dbCmd = &cobra.Command{
 			}
 			fmt.Println(_k + " updated")
 		case "delete":
-			err := db.Delete(key, store)
-			if err != nil {
-				fmt.Println(err.Error())
-				break
+			fmt.Printf("Are you sure you want to delete the key %s? (yes/no): ", key)
+			var response string
+			fmt.Scanln(&response)
+			if strings.ToLower(response) == "yes" {
+				err := db.Delete(key, store)
+				if err != nil {
+					fmt.Println(err.Error())
+					break
+				}
+				fmt.Println(key + " deleted")
+			} else {
+				fmt.Println("Deletion aborted")
 			}
-			fmt.Println(key + " deleted")
 		case "getPrefixes":
 			if d, ok := db.(*badger.BadgerStore); ok {
 				uniquePrefixes := make(map[string]struct{})
@@ -231,6 +296,6 @@ func init() {
 	dbCmd.Flags().StringVarP(&data, "data", "d", "", "data to create")
 	dbCmd.Flags().StringVarP(&dataFile, "dataFile", "i", "", "data to create")
 	dbCmd.Flags().StringVarP(&store, "store", "s", "_test", "store")
-	dbCmd.Flags().BoolVarP(&csv, "csv", "f", false, "output to csv")
 	dbCmd.Flags().IntVarP(&count, "count", "c", 1000, "count of rows to return")
+	dbCmd.Flags().StringVarP(&output, "output", "o", "json", "output format: json or csv")
 }
