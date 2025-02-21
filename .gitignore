@@ -2,3 +2,4 @@
 *.db
 data
 google-cloud-sdk
+.history
