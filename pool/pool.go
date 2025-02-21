@@ -65,13 +65,16 @@ func (p *ObjectPool) Get(name string) (common.ObjectStore, error) {
 	return item.Store, nil
 }
 
-func (p *ObjectPool) GetOrCreate(name string, creator func() common.ObjectStore) (*ObjectStoreItem, error) {
+func (p *ObjectPool) GetOrCreate(name string, creator func() (common.ObjectStore, error)) (*ObjectStoreItem, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	item, exists := p.items[name]
 
 	if !exists {
-		store := creator()
+		store, err := creator()
+		if err != nil {
+			return nil, err
+		}
 		return p.items[name], p.add(name, store)
 	}
 
