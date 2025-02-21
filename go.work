@@ -8,5 +8,6 @@ use (
 	./pool
 	./stores/badger
 	./stores/memory
+	./stores/mongodb
 	./stores/postgres
 )

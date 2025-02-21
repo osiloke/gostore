@@ -1,0 +1,19 @@
+version: "3.9"
+services:
+  mongodb:
+    image: mongo:latest
+    ports:
+      - "27017:27017"
+    volumes:
+      - ./data:/data/db
+    environment:
+      - MONGO_INITDB_DATABASE=test
+
+  data-loader:
+    build: .
+    depends_on:
+      - mongodb
+    command: ["node", "load-data.js"]
+    volumes:
+      - ./metadatas.json:/app/metadatas.json
+      - ./data:/data/db
