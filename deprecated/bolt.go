@@ -523,8 +523,14 @@ func (s BoltStore) Save(key, store string, src interface{}) (string, error) {
 	}
 	return key, nil
 }
+// SaveAll is deprecated: use BatchInsert instead
 func (s BoltStore) SaveAll(store string, src ...interface{}) (keys []string, err error) {
-	return nil, ErrNotImplemented
+	// Convert variadic parameters to slice
+	data := make([]interface{}, len(src))
+	for i, item := range src {
+		data[i] = item
+	}
+	return s.BatchInsert(data, store, nil)
 }
 func (s BoltStore) Update(key string, store string, src interface{}) error  { return ErrNotImplemented }
 func (s BoltStore) Replace(key string, store string, src interface{}) error { return ErrNotImplemented }
@@ -595,6 +601,45 @@ func (s BoltStore) BatchFilterUpdate(filter []map[string]interface{}, updateData
 	return ErrNotImplemented
 }
 func (s BoltStore) BatchInsert(data []interface{}, store string, opts ObjectStoreOptions) (keys []string, err error) {
-	return nil, ErrNotImplemented
+	s.CreateBucket(store)
+	keys = make([]string, 0, len(data))
+	
+	err = s.Db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte(store))
+		for _, item := range data {
+			var id string
+			if m, ok := item.(map[string]interface{}); ok {
+				if idVal, hasID := m["id"]; hasID {
+					if idStr, isStr := idVal.(string); isStr {
+						id = idStr
+					} else {
+						// Generate a new ID if the existing one isn't a string
+						id = time.Now().Format(time.RFC3339Nano)
+						m["id"] = id
+					}
+				} else {
+					// No ID field, generate a new one
+					id = time.Now().Format(time.RFC3339Nano)
+					m["id"] = id
+				}
+			} else {
+				// Not a map, use current time as ID
+				id = time.Now().Format(time.RFC3339Nano)
+			}
+			
+			jsonData, err := json.Marshal(item)
+			if err != nil {
+				return err
+			}
+			
+			if err := b.Put([]byte(id), jsonData); err != nil {
+				return err
+			}
+			keys = append(keys, id)
+		}
+		return nil
+	})
+	
+	return
 }
 func (s BoltStore) Close() {}

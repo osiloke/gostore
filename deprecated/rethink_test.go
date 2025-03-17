@@ -354,6 +354,42 @@ func TestRethinkSaveAll(t *testing.T) {
 
 }
 
+func TestRethinkBatchInsert(t *testing.T) {
+	expectedKeys := []string{"1", "2"}
+	items := []interface{}{
+		map[string]interface{}{"id": "1", "name": "First Thing", "kind": "thing"},
+		map[string]interface{}{"id": "2", "name": "Second Thing", "kind": "thing"},
+	}
+	mock := r.NewMock()
+	mock.On(r.DB("gostore_test").Table("things").Insert(items, r.InsertOpts{Durability: "hard"})).Return(r.WriteResponse{GeneratedKeys: expectedKeys}, nil)
+	mock.On(r.DB("gostore_test").Table("things").Get("1")).Return(items[0], nil)
+	mock.On(r.DB("gostore_test").Table("things").Get("2")).Return(items[1], nil)
+
+	// Only pass t into top-level Convey calls
+	Convey("Giving a rethink store", t, func() {
+		store := RethinkStore{mock, "gostore_test"}
+		Convey("After creating a things table", func() {
+			Convey("After inserting two rows using BatchInsert", func() {
+				keys, err := store.BatchInsert(items, collection, nil)
+				if err != nil {
+					panic(err)
+				}
+				Convey("The stored data is retrieved", func() {
+					storedItems := []map[string]interface{}{}
+					for _, key := range keys {
+						var storedItem map[string]interface{}
+						store.Get(key, collection, &storedItem)
+						storedItems = append(storedItems, storedItem)
+					}
+					Convey("This should have the same id as the saved key", func() {
+						So(storedItems[1]["name"].(string), ShouldEqual, items[1].(map[string]interface{})["name"].(string))
+					})
+				})
+			})
+		})
+	})
+}
+
 func TestFilterDelete(t *testing.T) {
 	expectedKeys := []string{"1", "2", "3"}
 	items := []interface{}{

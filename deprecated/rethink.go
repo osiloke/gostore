@@ -471,19 +471,14 @@ func (s RethinkStore) Save(key, store string, src interface{}) (string, error) {
 
 }
 
+// SaveAll is deprecated: use BatchInsert instead
 func (s RethinkStore) SaveAll(store string, src ...interface{}) (keys []string, err error) {
-	result, err := r.DB(s.Database).Table(store).Insert(src, r.InsertOpts{Durability: "hard"}).RunWrite(s.Session)
-	if err != nil {
-		if strings.Contains(err.Error(), "Duplicate primary key") {
-			err = ErrDuplicatePk
-		}
-		return
+	// Convert variadic parameters to slice
+	data := make([]interface{}, len(src))
+	for i, item := range src {
+		data[i] = item
 	}
-	if len(result.GeneratedKeys) > 0 {
-		keys = result.GeneratedKeys
-	}
-	return
-
+	return s.BatchInsert(data, store, nil)
 }
 
 func (s RethinkStore) Update(id string, store string, src interface{}) (err error) {
@@ -763,7 +758,17 @@ func (s RethinkStore) BatchFilterUpdate(filter []map[string]interface{}, updateD
 	return ErrNotImplemented
 }
 func (s RethinkStore) BatchInsert(data []interface{}, store string, opts ObjectStoreOptions) (keys []string, err error) {
-	return nil, ErrNotImplemented
+	result, err := r.DB(s.Database).Table(store).Insert(data, r.InsertOpts{Durability: "hard"}).RunWrite(s.Session)
+	if err != nil {
+		if strings.Contains(err.Error(), "Duplicate primary key") {
+			err = ErrDuplicatePk
+		}
+		return
+	}
+	if len(result.GeneratedKeys) > 0 {
+		keys = result.GeneratedKeys
+	}
+	return
 }
 func (s RethinkStore) Close() {
 	s.Session.(*r.Session).Close()

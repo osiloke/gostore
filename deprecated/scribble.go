@@ -120,8 +120,14 @@ func (s ScribbleStore) Save(key, store string, src interface{}) (string, error) 
 	}
 	return key, nil
 }
+// SaveAll is deprecated: use BatchInsert instead
 func (s ScribbleStore) SaveAll(store string, src ...interface{}) (keys []string, err error) {
-	return nil, ErrNotImplemented
+	// Convert variadic parameters to slice
+	data := make([]interface{}, len(src))
+	for i, item := range src {
+		data[i] = item
+	}
+	return s.BatchInsert(data, store, nil)
 }
 func (s ScribbleStore) Update(key string, store string, src interface{}) error {
 	return ErrNotImplemented
@@ -170,7 +176,31 @@ func (s ScribbleStore) GetByFieldsByField(name, val, store string, fields []stri
 	return ErrNotImplemented
 }
 func (s ScribbleStore) BatchInsert(data []interface{}, store string, opts ObjectStoreOptions) (keys []string, err error) {
-	return nil, ErrNotImplemented
+	keys = make([]string, 0, len(data))
+	for _, item := range data {
+		var id string
+		if m, ok := item.(map[string]interface{}); ok {
+			if idVal, hasID := m["id"]; hasID {
+				if idStr, isStr := idVal.(string); isStr {
+					id = idStr
+				} else {
+					id = NewObjectId().Hex()
+					m["id"] = id
+				}
+			} else {
+				id = NewObjectId().Hex()
+				m["id"] = id
+			}
+		} else {
+			id = NewObjectId().Hex()
+		}
+		
+		if err = s.db.Write(store, id, item); err != nil {
+			return keys, err
+		}
+		keys = append(keys, id)
+	}
+	return keys, nil
 }
 func (s ScribbleStore) Close() {
 }

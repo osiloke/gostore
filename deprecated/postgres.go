@@ -185,36 +185,14 @@ func (s PostgresObjectStore) Save(key, store string, src interface{}) (string, e
 	return key, err
 }
 
+// SaveAll is deprecated: use BatchInsert instead
 func (s PostgresObjectStore) SaveAll(store string, srcArray ...interface{}) (keys []string, err error) {
-	for _, src := range srcArray {
-		if data, err := json.Marshal(src); err == nil {
-			var id string
-			if i, ok := src.(map[string]interface{})["id"].(string); ok {
-				id = i
-			} else {
-				id = NewObjectId().Hex()
-			}
-			item := Storage{id, string(data)}
-			//		id_created := s.db.Table(safeStoreName(store)).NewRecord(item)
-			//		if id_created {
-			//			logger.Warn("Id was generated for saved item", "item", item)
-			//		}
-			result := s.db.Table(safeStoreName(store)).Create(&item)
-			if result.Error != nil {
-				err = result.Error
-				if err == sql.ErrNoRows {
-					return nil, err
-				}
-			}
-
-			// key = item.Id
-		}
-		if err != nil {
-			logger.Debug("Error saving doc", "Err", err)
-			return
-		}
+	// Convert variadic parameters to slice
+	data := make([]interface{}, len(srcArray))
+	for i, item := range srcArray {
+		data[i] = item
 	}
-	return
+	return s.BatchInsert(data, store, nil)
 }
 
 func (s PostgresObjectStore) Update(id string, store string, src interface{}) (err error) {
@@ -368,7 +346,39 @@ func (s PostgresObjectStore) GetByFieldsByField(name, val, store string, fields 
 	return nil
 }
 func (s PostgresObjectStore) BatchInsert(data []interface{}, store string, opts ObjectStoreOptions) (keys []string, err error) {
-	return nil, ErrNotImplemented
+	keys = make([]string, 0, len(data))
+	for _, src := range data {
+		if jsonData, err := json.Marshal(src); err == nil {
+			var id string
+			if m, ok := src.(map[string]interface{}); ok {
+				if idVal, hasID := m["id"]; hasID {
+					if idStr, isStr := idVal.(string); isStr {
+						id = idStr
+					} else {
+						id = NewObjectId().Hex()
+						m["id"] = id
+					}
+				} else {
+					id = NewObjectId().Hex()
+					m["id"] = id
+				}
+			} else {
+				id = NewObjectId().Hex()
+			}
+			
+			item := Storage{id, string(jsonData)}
+			result := s.db.Table(safeStoreName(store)).Create(&item)
+			if result.Error != nil {
+				err = result.Error
+				return keys, err
+			}
+			keys = append(keys, id)
+		} else {
+			logger.Debug("Error marshaling doc", "Err", err)
+			return keys, err
+		}
+	}
+	return keys, nil
 }
 func (s PostgresObjectStore) Close() {
 	s.db.Close()
