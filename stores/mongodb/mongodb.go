@@ -476,6 +476,8 @@ func New(ctx context.Context, uri string, dbName string) (*MongoDBStore, error) 
 		return nil, fmt.Errorf("failed to connect to MongoDB: %w", err)
 	}
 
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
 	err = client.Ping(ctx, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to ping MongoDB: %w", err)
