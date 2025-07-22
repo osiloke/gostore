@@ -3,3 +3,17 @@
 data
 google-cloud-sdk
 .history
+
+# macOS
+.DS_Store
+
+# Build artifacts & Binaries
+gostore_v4
+/cli/gostore
+/cli/docker/cli
+
+# User scripts
+/cli/restore.sh
+
+# Test data
+/stores/mongodb/test/
