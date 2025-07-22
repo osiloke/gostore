@@ -16,8 +16,10 @@ require (
 	go.mongodb.org/mongo-driver v1.17.2
 	golang.org/x/crypto v0.26.0 // indirect
 	golang.org/x/sync v0.8.0 // indirect
-	golang.org/x/sys v0.23.0 // indirect
+	golang.org/x/sys v0.27.0 // indirect
 	golang.org/x/text v0.17.0 // indirect
 )
 
 require github.com/osiloke/gostore/common v0.0.0-20240719162349-fe2217882b55
+
+replace github.com/osiloke/gostore/common => ../../common

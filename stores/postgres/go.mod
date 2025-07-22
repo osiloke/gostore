@@ -1,9 +1,11 @@
 module github.com/osiloke/gostore/stores/postgres
 
-go 1.22.0
+go 1.23.0
+
+toolchain go1.24.0
 
 require (
-	github.com/osiloke/gostore/common v0.0.0-20240719162349-fe2217882b55
+	github.com/osiloke/gostore/common v0.0.0-00010101000000-000000000000
 	github.com/stripe/pg-schema-diff v0.7.0
 	gorm.io/driver/postgres v1.5.9
 	gorm.io/plugin/opentelemetry v0.1.4
@@ -52,3 +54,5 @@ require (
 	gorm.io/gorm v1.25.11
 	zgo.at/zcache/v2 v2.1.0
 )
+
+replace github.com/osiloke/gostore/common => ../../common

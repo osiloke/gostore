@@ -1,13 +1,15 @@
 module github.com/osiloke/gostore/indexer
 
-go 1.22.0
+go 1.23.0
+
+toolchain go1.24.0
 
 require (
 	github.com/blevesearch/bleve v1.0.14
 	github.com/blevesearch/bleve/v2 v2.4.4
 	github.com/dgraph-io/badger v1.6.2
 	github.com/mgutz/logxi v0.0.0-20161027140823-aebf8a7d67ab
-	github.com/osiloke/gostore/common v0.0.0-20240719162349-fe2217882b55
+	github.com/osiloke/gostore/common v0.0.0-00010101000000-000000000000
 	github.com/smartystreets/goconvey v1.8.1
 	github.com/stretchr/testify v1.10.0
 )
@@ -67,3 +69,5 @@ require (
 	gopkg.in/check.v1 v1.0.0-20201130134442-10cb98267c6c // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
+
+replace github.com/osiloke/gostore/common => ../common
