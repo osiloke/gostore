@@ -11,10 +11,6 @@ import (
 var ErrAlreadyExists = errors.New("object store with this name already exists")
 var ErrNoItemsToUse = errors.New("all items are in use, cannot remove any")
 
-type Closeable interface {
-	Close() error
-}
-
 type ObjectStoreItem struct {
 	Store       common.ObjectStore
 	LastAccess  time.Time
@@ -26,7 +22,7 @@ type ObjectStoreItem struct {
 
 func (o *ObjectStoreItem) Release() {
 	o.mu.Lock()
-	o.mu.Unlock()
+	defer o.mu.Unlock()
 	o.UsageCount--
 	if o.UsageCount == 0 && o.Removed {
 		o.Store.Close()
@@ -65,24 +61,50 @@ func (p *ObjectPool) Get(name string) (common.ObjectStore, error) {
 	return item.Store, nil
 }
 
-func (p *ObjectPool) GetOrCreate(name string, creator func() (common.ObjectStore, error)) (*ObjectStoreItem, error) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
+func (p *ObjectPool) GetOrCreate(name string, creator func() (common.ObjectStore, error)) (common.ObjectStore, error) {
+	p.mu.RLock()
 	item, exists := p.items[name]
+	p.mu.RUnlock()
 
-	if !exists {
-		store, err := creator()
-		if err != nil {
-			return nil, err
-		}
-		return p.items[name], p.add(name, store)
+	if exists {
+		item.mu.Lock()
+		item.LastAccess = time.Now()
+		item.AccessCount++
+		item.UsageCount++
+		item.mu.Unlock()
+		return item.Store, nil
 	}
 
-	item.LastAccess = time.Now()
-	item.AccessCount++
-	item.UsageCount++
+	// Item does not exist, so create it.
+	// This part is tricky to do without holding the lock for a long time.
+	// A common pattern is to lock, check again, and then create.
+	p.mu.Lock()
+	defer p.mu.Unlock()
 
-	return item, nil
+	// Double-check if the item was created while we were waiting for the lock
+	item, exists = p.items[name]
+	if exists {
+		item.mu.Lock()
+		item.LastAccess = time.Now()
+		item.AccessCount++
+		item.UsageCount++
+		item.mu.Unlock()
+		return item.Store, nil
+	}
+
+	// Create new store
+	store, err := creator()
+	if err != nil {
+		return nil, err
+	}
+
+	// Add the new store to the pool
+	if err := p.add(name, store); err != nil {
+		store.Close() // Close the store if it can't be added to the pool
+		return nil, err
+	}
+
+	return store, nil
 }
 
 func (p *ObjectPool) Release(name string) {
@@ -110,11 +132,9 @@ func (p *ObjectPool) add(name string, store common.ObjectStore) error {
 	}
 
 	p.items[name] = &ObjectStoreItem{
-		Store:       store,
-		LastAccess:  time.Now(),
-		AccessCount: 1,
-		UsageCount:  1,
-		Removed:     false,
+		Store:      store,
+		LastAccess: time.Now(),
+		Removed:    false,
 	}
 
 	return nil
@@ -145,7 +165,10 @@ func (p *ObjectPool) removeLeastUsed() error {
 
 	leastUsed.mu.Lock()
 	if leastUsed.UsageCount == 0 {
-		leastUsed.Store.Close()
+		// Call Close on the store before removing it from the pool
+		if c, ok := leastUsed.Store.(interface{ Close() }); ok {
+			c.Close()
+		}
 	}
 	leastUsed.Removed = true
 	leastUsed.mu.Unlock()
@@ -160,7 +183,7 @@ func (p *ObjectPool) Remove(name string) error {
 
 	item, exists := p.items[name]
 	if !exists {
-		return errors.New("object store not found")
+		return nil
 	}
 
 	item.mu.Lock()
@@ -206,25 +229,12 @@ func (p *ObjectPool) CloseAndRemove(name string) error {
 		return errors.New("object store is currently in use")
 	}
 
-	// if closeable, ok := item.Store.(Closeable); ok {
-	// 	if err := closeable.Close(); err != nil {
-	// 		return err
-	// 	}
-	// }
-	item.Store.Close()
+	// Call Close on the store before removing it from the pool
+	if c, ok := item.Store.(interface{ Close() }); ok {
+		c.Close()
+	}
 
 	item.Removed = true
 	delete(p.items, name)
 	return nil
-}
-
-func (p *ObjectPool) Destroy() {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	for k, item := range p.items {
-		item.Store.Close()
-
-		item.Removed = true
-		delete(p.items, k)
-	}
 }
