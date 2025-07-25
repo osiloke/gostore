@@ -1,16 +1,21 @@
 package memory
 
 import (
+	"encoding/json"
 	"fmt"
+	"log"
 	"sync"
 
-	"dario.cat/mergo"
-	. "github.com/osiloke/gostore/common"
-	common "github.com/osiloke/gostore/common"
+	. "github.com/gostore/gostore/common"
+	common "github.com/gostore/gostore/common"
 )
 
-func NewMemoryStore() *MemoryStore {
-	return &MemoryStore{stores: make(map[string]map[string]interface{})}
+func NewMemoryStore(opts ...func(s *MemoryStore)) *MemoryStore {
+	s := &MemoryStore{stores: make(map[string]map[string]interface{})}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
 }
 
 // MemoryStore implements the ObjectStore interface using a simple in-memory map.
@@ -221,6 +226,10 @@ func (s *MemoryStore) Get(key string, store string, dst interface{}) error {
 func (s *MemoryStore) Save(key, store string, src interface{}) (string, error) {
 	s.Lock()
 	defer s.Unlock()
+
+	if _, ok := s.stores[store]; !ok {
+		s.stores[store] = make(map[string]interface{})
+	}
 
 	// Serialize the data into a map[string]interface{}
 	data, err := marshalData(src)
@@ -494,6 +503,7 @@ func (s *MemoryStore) Close() {
 
 // helper function to serialize data into map[string]interface{}
 func marshalData(src interface{}) (map[string]interface{}, error) {
+	log.Printf("Marshalling data of type %T: %+v", src, src)
 	// This is a basic implementation.
 	// You might need to use a more robust serialization library
 	// like JSON or YAML depending on your data structure.
@@ -504,7 +514,21 @@ func marshalData(src interface{}) (map[string]interface{}, error) {
 		return data, nil
 	}
 
-	return nil, fmt.Errorf("cannot marshal data of type %T", src)
+	// If not a map, try to marshal it to JSON and then unmarshal it to a map
+	b, err := json.Marshal(src)
+	if err != nil {
+		log.Printf("Error marshalling data: %v", err)
+		return nil, fmt.Errorf("cannot marshal data: %v", src)
+	}
+	log.Printf("Marshalled data: %s", b)
+	var dst map[string]interface{}
+	err = json.Unmarshal(b, &dst)
+	if err != nil {
+		log.Printf("Error unmarshalling data: %v", err)
+		return nil, fmt.Errorf("cannot unmarshal data: %v", src)
+	}
+
+	return dst, nil
 }
 
 // helper function to unmarshal data from map[string]interface{} into a struct
@@ -515,26 +539,9 @@ func unmarshalData(data interface{}, dst interface{}) error {
 	// This example assumes dst is a pointer to a struct.
 
 	// Example assuming data is a map[string]interface{} and dst is a pointer to a struct.
-	if data, ok := data.(map[string]interface{}); ok {
-		// You need to implement the unmarshaling logic for your specific data structure.
-		// This is a placeholder.
-		// You might use reflection or other techniques.
-
-		// Example:
-		// if dst, ok := dst.(*YourStruct); ok {
-		//    dst.Field1 = data["Field1"]
-		//    dst.Field2 = data["Field2"]
-		// }
-		// destination := dst.(map[string]interface{})
-		// return mergo.Map(&dst, data)
-		switch v := dst.(type) {
-		case *interface{}:
-			dst = &data
-			return nil
-		case map[string]interface{}:
-			return mergo.Map(&v, data)
-		}
+	b, err := json.Marshal(data)
+	if err != nil {
+		return err
 	}
-
-	return fmt.Errorf("cannot unmarshal data of type %T", data)
+	return json.Unmarshal(b, dst)
 }

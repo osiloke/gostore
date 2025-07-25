@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	common "github.com/osiloke/gostore/common"
+	common "github.com/gostore/gostore/common"
 )
 
 var ErrAlreadyExists = errors.New("object store with this name already exists")
@@ -59,6 +59,18 @@ func (p *ObjectPool) Get(name string) (common.ObjectStore, error) {
 	item.UsageCount++
 
 	return item.Store, nil
+}
+
+func (p *ObjectPool) GetItem(name string) (*ObjectStoreItem, error) {
+	p.mu.RLock()
+	item, exists := p.items[name]
+	p.mu.RUnlock()
+
+	if !exists {
+		return nil, errors.New("object store not found")
+	}
+
+	return item, nil
 }
 
 func (p *ObjectPool) GetOrCreate(name string, creator func() (common.ObjectStore, error)) (common.ObjectStore, error) {
@@ -237,4 +249,27 @@ func (p *ObjectPool) CloseAndRemove(name string) error {
 	item.Removed = true
 	delete(p.items, name)
 	return nil
+}
+func (p *ObjectPool) CloseAll() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for _, item := range p.items {
+		item.mu.Lock()
+		if c, ok := item.Store.(interface{ Close() }); ok {
+			c.Close()
+		}
+		item.Removed = true
+		item.mu.Unlock()
+	}
+	p.items = make(map[string]*ObjectStoreItem)
+}
+
+func (p *ObjectPool) GetAll() []common.ObjectStore {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	stores := make([]common.ObjectStore, 0, len(p.items))
+	for _, item := range p.items {
+		stores = append(stores, item.Store)
+	}
+	return stores
 }

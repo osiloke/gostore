@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 
 	"dario.cat/mergo"
-	common "github.com/osiloke/gostore/common"
+	common "github.com/gostore/gostore/common"
 )
 
 var logger = common.Logger("memory")
