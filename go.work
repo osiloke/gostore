@@ -12,4 +12,5 @@ use (
 	./stores/postgres
 	./stores/sharded
 	./stores/progressive
+	./worker
 )

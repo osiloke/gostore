@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"github.com/gostore/gostore/common"
+	"github.com/gostore/gostore/worker"
 )
 
 // MigrationStatus represents the migration state of a partition.
@@ -52,6 +53,7 @@ type ProgressiveMigrationStore struct {
 	migrationLock sync.Mutex
 	logger        *common.ZerologLogger
 	batchSize     int
+	workerPool    *worker.WorkerPool
 }
 
 // New creates a new ProgressiveMigrationStore.
@@ -66,9 +68,13 @@ func New(
 	partitioner PartitionFunc,
 	logger *common.ZerologLogger,
 	batchSize int,
+	numWorkers int,
 ) *ProgressiveMigrationStore {
 	if batchSize <= 0 {
 		batchSize = 100 // Default batch size
+	}
+	if numWorkers <= 0 {
+		numWorkers = 10 // Default number of workers
 	}
 	return &ProgressiveMigrationStore{
 		primary:     primary,
@@ -77,6 +83,7 @@ func New(
 		partitioner: partitioner,
 		logger:      logger,
 		batchSize:   batchSize,
+		workerPool:  worker.NewWorkerPool(numWorkers),
 	}
 }
 
@@ -285,8 +292,11 @@ func (s *ProgressiveMigrationStore) triggerMigration(partitionID string) {
 		return
 	}
 
-	// Start the migration in a background goroutine.
-	go s.migratePartition(partitionID)
+	// Enqueue a migration job.
+	s.workerPool.Enqueue(&migrationJob{
+		store:       s,
+		partitionID: partitionID,
+	})
 }
 
 func (s *ProgressiveMigrationStore) migratePartition(partitionID string) {
@@ -420,4 +430,20 @@ func (s *ProgressiveMigrationStore) StartBackfill(ctx context.Context) {
 	}
 
 	s.logger.Info("background backfill process completed")
+}
+
+// Close stops the worker pool.
+func (s *ProgressiveMigrationStore) Close() {
+	s.workerPool.Stop()
+}
+
+// migrationJob represents a job to migrate a partition.
+type migrationJob struct {
+	store       *ProgressiveMigrationStore
+	partitionID string
+}
+
+// Execute executes the migration job.
+func (j *migrationJob) Execute() {
+	j.store.migratePartition(j.partitionID)
 }
