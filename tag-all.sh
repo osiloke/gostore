@@ -11,6 +11,11 @@ REMOTE_NAME="origin"
 
 # --- Script Logic ---
 
+# Fetch the latest tags from the remote to avoid conflicts
+echo "Fetching latest tags from remote '$REMOTE_NAME'..."
+git fetch "$REMOTE_NAME" --tags
+echo ""
+
 # Get the next version from the get-next-version.sh script
 echo "Determining next version..."
 VERSION=$(./get-next-version.sh)
@@ -36,12 +41,45 @@ echo "$MODULES"
 echo ""
 
 # Loop through each module and create a tag
+TAGS_TO_CREATE=()
 for module_path in $MODULES; do
   # Remove the leading './'
   clean_path=${module_path#./}
-
   tag_name="$clean_path/$VERSION"
 
+  # Check if the tag already exists locally or remotely
+  if git rev-parse -q --verify "refs/tags/$tag_name" >/dev/null; then
+    echo "Warning: Tag '$tag_name' already exists. Skipping."
+  else
+    echo "Preparing to create tag: $tag_name"
+    TAGS_TO_CREATE+=("$tag_name")
+  fi
+done
+
+if [ ${#TAGS_TO_CREATE[@]} -eq 0 ]; then
+  echo ""
+  echo "No new tags to create. Exiting."
+  exit 0
+fi
+
+echo ""
+echo "The following tags will be created:"
+for tag in "${TAGS_TO_CREATE[@]}"; do
+  echo "  - $tag"
+done
+echo ""
+
+# Ask for confirmation before creating and pushing tags
+read -p "Do you want to create these tags and push them to '$REMOTE_NAME'? (y/n) " -n 1 -r
+echo ""
+if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+    echo "Aborted by user."
+    exit 1
+fi
+
+echo ""
+echo "Creating local tags..."
+for tag_name in "${TAGS_TO_CREATE[@]}"; do
   echo "Creating tag: $tag_name"
   git tag "$tag_name"
 done
