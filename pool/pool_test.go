@@ -147,6 +147,43 @@ func TestObjectPool_GetOrCreate(t *testing.T) {
 	}
 }
 
+func TestObjectPool_GetOrCreateItem(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	pool := NewObjectPool(2)
+	store1 := mocks.NewMockObjectStore(ctrl)
+
+	// First time, create the store
+	createdItem, err := pool.GetOrCreateItem("store1", func() (common.ObjectStore, error) {
+		return store1, nil
+	})
+	if err != nil {
+		t.Fatalf("Unexpected error on create: %v", err)
+	}
+	if createdItem.Store != store1 {
+		t.Error("Created store does not match expected store")
+	}
+	if len(pool.items) != 1 {
+		t.Errorf("Expected 1 item in pool, got %d", len(pool.items))
+	}
+
+	// Second time, get the existing store
+	getItem, err := pool.GetOrCreateItem("store1", func() (common.ObjectStore, error) {
+		t.Fatal("Creator should not be called for existing store")
+		return nil, nil
+	})
+	if err != nil {
+		t.Fatalf("Unexpected error on get: %v", err)
+	}
+	if getItem.Store != store1 {
+		t.Error("Got store does not match expected store")
+	}
+	if len(pool.items) != 1 {
+		t.Errorf("Expected 1 item in pool, got %d", len(pool.items))
+	}
+}
+
 func TestObjectPool_Release(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
