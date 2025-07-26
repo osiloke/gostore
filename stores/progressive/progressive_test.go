@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
+	mocks "github.com/osiloke/gostore-mocks"
 	"github.com/osiloke/gostore/common"
-	"github.com/osiloke/gostore/mocks"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/mock/gomock"
 )
@@ -21,7 +21,7 @@ func TestNew(t *testing.T) {
 
 	store := New(primary, secondary, metadata, func(key string) string {
 		return "partition"
-	}, logger, 10)
+	}, logger, 10, 5)
 
 	assert.NotNil(t, store)
 	assert.Equal(t, primary, store.primary)
@@ -42,7 +42,7 @@ func TestGet_OnDemandMigration(t *testing.T) {
 
 	store := New(primary, secondary, metadata, func(key string) string {
 		return "partition1"
-	}, logger, 10)
+	}, logger, 10, 5)
 
 	// Expect a call to the metadata store to get the partition status.
 	// Return NotMigrated.
@@ -92,7 +92,7 @@ func TestSave_DualWrite(t *testing.T) {
 
 	store := New(primary, secondary, metadata, func(key string) string {
 		return "partition1"
-	}, logger, 10)
+	}, logger, 10, 5)
 
 	// Expect a call to the primary store's Save method.
 	primary.EXPECT().Save("key1", "store1", "data").Return("key1", nil)
@@ -115,7 +115,7 @@ func TestMigratePartition_Resumption(t *testing.T) {
 
 	store := New(primary, secondary, metadata, func(key string) string {
 		return "partition1"
-	}, logger, 10)
+	}, logger, 10, 5)
 
 	// Expect a call to the metadata store to get the partition status.
 	// Return InProgress with a LastMigratedKey.
