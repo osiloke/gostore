@@ -119,6 +119,52 @@ func (p *ObjectPool) GetOrCreate(name string, creator func() (common.ObjectStore
 	return store, nil
 }
 
+func (p *ObjectPool) GetOrCreateItem(name string, creator func() (common.ObjectStore, error)) (*ObjectStoreItem, error) {
+	p.mu.RLock()
+	item, exists := p.items[name]
+	p.mu.RUnlock()
+
+	if exists {
+		item.mu.Lock()
+		item.LastAccess = time.Now()
+		item.AccessCount++
+		item.UsageCount++
+		item.mu.Unlock()
+		return item, nil
+	}
+
+	// Item does not exist, so create it.
+	// This part is tricky to do without holding the lock for a long time.
+	// A common pattern is to lock, check again, and then create.
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	// Double-check if the item was created while we were waiting for the lock
+	item, exists = p.items[name]
+	if exists {
+		item.mu.Lock()
+		item.LastAccess = time.Now()
+		item.AccessCount++
+		item.UsageCount++
+		item.mu.Unlock()
+		return item, nil
+	}
+
+	// Create new store
+	store, err := creator()
+	if err != nil {
+		return nil, err
+	}
+
+	// Add the new store to the pool
+	if err := p.add(name, store); err != nil {
+		store.Close() // Close the store if it can't be added to the pool
+		return nil, err
+	}
+	item, _ = p.items[name]
+	return item, nil
+}
+
 func (p *ObjectPool) Release(name string) {
 	p.mu.RLock()
 	item, exists := p.items[name]
