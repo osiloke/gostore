@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	common "github.com/gostore/gostore/common"
+	common "github.com/osiloke/gostore/common"
 )
 
 var ErrAlreadyExists = errors.New("object store with this name already exists")

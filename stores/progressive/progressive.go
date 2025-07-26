@@ -4,8 +4,8 @@ import (
 	"context"
 	"sync"
 
-	"github.com/gostore/gostore/common"
-	"github.com/gostore/gostore/worker"
+	"github.com/osiloke/gostore/common"
+	"github.com/osiloke/gostore/worker"
 )
 
 // MigrationStatus represents the migration state of a partition.

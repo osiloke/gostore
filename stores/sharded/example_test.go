@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/gostore/gostore/stores/memory"
-	"github.com/gostore/gostore/stores/sharded"
+	"github.com/osiloke/gostore/stores/memory"
+	"github.com/osiloke/gostore/stores/sharded"
 )
 
 // User represents a user in our system.

@@ -1,13 +1,13 @@
-module github.com/gostore/gostore/stores/progressive
+module github.com/osiloke/gostore/stores/progressive
 
 go 1.23.0
 
 toolchain go1.24.0
 
 require (
-	github.com/gostore/gostore/common v0.0.0
-	github.com/gostore/gostore/mocks v0.0.0-00010101000000-000000000000
-	github.com/gostore/gostore/worker v0.0.0-00010101000000-000000000000
+	github.com/osiloke/gostore/common v0.0.0
+	github.com/osiloke/gostore/mocks v0.0.0-00010101000000-000000000000
+	github.com/osiloke/gostore/worker v0.0.0-00010101000000-000000000000
 	github.com/stretchr/testify v1.8.4
 	go.uber.org/mock v0.4.0
 )
@@ -22,8 +22,8 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
-replace github.com/gostore/gostore/common => ../../common
+replace github.com/osiloke/gostore/common => ../../common
 
-replace github.com/gostore/gostore/mocks => ../../mocks
+replace github.com/osiloke/gostore/mocks => ../../mocks
 
-replace github.com/gostore/gostore/worker => ../../worker
+replace github.com/osiloke/gostore/worker => ../../worker

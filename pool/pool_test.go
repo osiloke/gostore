@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gostore/gostore/common"
-	"github.com/gostore/gostore/mocks"
+	"github.com/osiloke/gostore/common"
+	"github.com/osiloke/gostore/mocks"
 	"go.uber.org/mock/gomock"
 )
 

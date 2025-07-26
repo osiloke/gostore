@@ -4,7 +4,7 @@ package common
 *
 Store is deprecated
 */
-//go:generate  mockgen -package mocks -destination ../mocks/object_store.go github.com/gostore/gostore/common ObjectStore
+//go:generate  mockgen -package mocks -destination ../mocks/object_store.go github.com/osiloke/gostore/common ObjectStore
 type Store interface {
 	Get(key []byte, resource string) ([][]byte, error)
 	PrefixGet(prefix []byte, resource string) ([][]byte, error) //Gets an item with a prefix

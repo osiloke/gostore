@@ -7,9 +7,9 @@ import (
 	"log"
 	"sync"
 
-	"github.com/gostore/gostore/common"
-	"github.com/gostore/gostore/pool"
-	"github.com/gostore/gostore/stores/memory"
+	"github.com/osiloke/gostore/common"
+	"github.com/osiloke/gostore/pool"
+	"github.com/osiloke/gostore/stores/memory"
 )
 
 // ShardLocatorFunc defines the function signature for determining which shard to use.

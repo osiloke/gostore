@@ -61,9 +61,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/gostore/gostore/common"
-	"github.com/gostore/gostore/stores/memory"
-	"github.com/gostore/gostore/stores/progressive"
+	"github.com/osiloke/gostore/common"
+	"github.com/osiloke/gostore/stores/memory"
+	"github.com/osiloke/gostore/stores/progressive"
 )
 
 func main() {
@@ -120,10 +120,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gostore/gostore/common"
-	"github.com/gostore/gostore/pool"
-	"github.com/gostore/gostore/stores/memory"
-	"github.com/gostore/gostore/stores/progressive"
+	"github.com/osiloke/gostore/common"
+	"github.com/osiloke/gostore/pool"
+	"github.com/osiloke/gostore/stores/memory"
+	"github.com/osiloke/gostore/stores/progressive"
 )
 
 func main() {
@@ -191,10 +191,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/gostore/gostore/common"
-	"github.com/gostore/gostore/stores/memory"
-	"github.com/gostore/gostore/stores/progressive"
-	"github.com/gostore/gostore/stores/sharded"
+	"github.com/osiloke/gostore/common"
+	"github.com/osiloke/gostore/stores/memory"
+	"github.com/osiloke/gostore/stores/progressive"
+	"github.com/osiloke/gostore/stores/sharded"
 )
 
 func main() {

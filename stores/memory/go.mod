@@ -1,4 +1,4 @@
-module github.com/gostore/gostore/stores/memory
+module github.com/osiloke/gostore/stores/memory
 
 go 1.23.0
 
@@ -13,7 +13,7 @@ require (
 
 require (
 	dario.cat/mergo v1.0.0
-	github.com/gostore/gostore/common v0.0.0
+	github.com/osiloke/gostore/common v0.0.0
 )
 
-replace github.com/gostore/gostore/common => ../../common
+replace github.com/osiloke/gostore/common => ../../common

@@ -6,8 +6,8 @@ import (
 	"log"
 	"sync"
 
-	. "github.com/gostore/gostore/common"
-	common "github.com/gostore/gostore/common"
+	. "github.com/osiloke/gostore/common"
+	common "github.com/osiloke/gostore/common"
 )
 
 func NewMemoryStore(opts ...func(s *MemoryStore)) *MemoryStore {
