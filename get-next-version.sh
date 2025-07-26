@@ -14,7 +14,7 @@ if [ -n "$MODULE_PATH" ]; then
   LATEST_TAG=$(git tag --list "$CLEAN_PATH/v*" | sort -V | tail -n 1)
 else
   # Fallback to the original behavior if no module path is given
-  LATEST_TAG=$(git tag | grep 'v[0-9]\+\.[0-9]\+\.[0-9]\+.*$' | sort -V | tail -n 1)
+  LATEST_TAG=$(git tag --list '*/v*' | sort -V | tail -n 1)
 fi
 
 if [ -z "$LATEST_TAG" ]; then
