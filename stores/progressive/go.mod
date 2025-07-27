@@ -7,7 +7,7 @@ toolchain go1.24.0
 require (
 	github.com/osiloke/gostore/common v0.0.0
 	github.com/osiloke/gostore/mocks v0.0.0
-	github.com/osiloke/gostore/worker v0.0.0-00010101000000-000000000000
+	github.com/osiloke/gostore/worker v0.0.0
 	github.com/stretchr/testify v1.10.0
 	go.uber.org/mock v0.4.0
 )
