@@ -1,4 +1,4 @@
-module github.com/osiloke/gostore-mocks
+module github.com/osiloke/gostore/mocks
 
 go 1.23.0
 
