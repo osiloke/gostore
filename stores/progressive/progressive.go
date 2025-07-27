@@ -231,6 +231,461 @@ func (s *ProgressiveMigrationStore) BatchFilterDelete(filter []map[string]any, s
 	return nil
 }
 
+// Replace replaces an existing document with a new one.
+func (s *ProgressiveMigrationStore) Replace(key string, store string, src interface{}) error {
+	// Write to primary store first, as it is the source of truth.
+	err := s.primary.Replace(key, store, src)
+	if err != nil {
+		return err
+	}
+
+	// Then, write to the secondary store.
+	if err := s.secondary.Replace(key, store, src); err != nil {
+		// Log the error, but don't fail the operation.
+		// A background process can handle reconciliation.
+		s.logger.Error("failed to write to secondary store during Replace", "error", err, "key", key, "store", store)
+	}
+
+	return nil
+}
+
+// FilterUpdate updates multiple documents matching a filter.
+func (s *ProgressiveMigrationStore) FilterUpdate(filter map[string]interface{}, src interface{}, store string, opts common.ObjectStoreOptions) error {
+	// Write to primary store first, as it is the source of truth.
+	err := s.primary.FilterUpdate(filter, src, store, opts)
+	if err != nil {
+		return err
+	}
+
+	// Then, write to the secondary store.
+	if err := s.secondary.FilterUpdate(filter, src, store, opts); err != nil {
+		// Log the error, but don't fail the operation.
+		// A background process can handle reconciliation.
+		s.logger.Error("failed to write to secondary store during FilterUpdate", "error", err, "store", store)
+	}
+
+	return nil
+}
+
+// FilterReplace replaces multiple documents matching a filter.
+func (s *ProgressiveMigrationStore) FilterReplace(filter map[string]interface{}, src interface{}, store string, opts common.ObjectStoreOptions) error {
+	// Write to primary store first, as it is the source of truth.
+	err := s.primary.FilterReplace(filter, src, store, opts)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// FilterDelete removes multiple documents matching a filter.
+func (s *ProgressiveMigrationStore) FilterDelete(filter map[string]interface{}, store string, opts common.ObjectStoreOptions) error {
+	// Write to primary store first, as it is the source of truth.
+	err := s.primary.FilterDelete(filter, store, opts)
+	if err != nil {
+		return err
+	}
+
+	// Then, write to the secondary store.
+	if err := s.secondary.FilterDelete(filter, store, opts); err != nil {
+		// Log the error, but don't fail the operation.
+		// A background process can handle reconciliation.
+		s.logger.Error("failed to write to secondary store during FilterDelete", "error", err, "store", store)
+	}
+
+	return nil
+}
+
+// FilterCount counts documents matching a filter.
+func (s *ProgressiveMigrationStore) FilterCount(filter map[string]interface{}, store string, opts common.ObjectStoreOptions) (int64, error) {
+	// For simplicity, we'll always read from the primary store for FilterCount.
+	return s.primary.FilterCount(filter, store, opts)
+}
+
+// FilterGetAll retrieves multiple documents matching a filter.
+func (s *ProgressiveMigrationStore) FilterGetAll(filter map[string]interface{}, count int, skip int, store string, opts common.ObjectStoreOptions) (common.ObjectRows, error) {
+	partitionID := store
+	status, err := s.getPartitionStatus(partitionID)
+	if err != nil {
+		return nil, err
+	}
+
+	if status == Migrated {
+		return s.secondary.FilterGetAll(filter, count, skip, store, opts)
+	}
+
+	// If the partition is not migrated or is in the process of being migrated,
+	// serve the request from the primary store.
+	rows, err := s.primary.FilterGetAll(filter, count, skip, store, opts)
+	if err != nil {
+		return nil, err
+	}
+
+	// If the partition has not been migrated yet, start the migration process
+	// in a background goroutine.
+	if status == NotMigrated {
+		s.triggerMigration(partitionID)
+	}
+
+	return rows, nil
+}
+
+// Query retrieves documents matching a filter and calculates aggregations.
+func (s *ProgressiveMigrationStore) Query(filter, aggregates map[string]interface{}, count int, skip int, store string, opts common.ObjectStoreOptions) (common.ObjectRows, common.AggregateResult, error) {
+	partitionID := store
+	status, err := s.getPartitionStatus(partitionID)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if status == Migrated {
+		return s.secondary.Query(filter, aggregates, count, skip, store, opts)
+	}
+
+	// If the partition is not migrated or is in the process of being migrated,
+	// serve the request from the primary store.
+	rows, agg, err := s.primary.Query(filter, aggregates, count, skip, store, opts)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// If the partition has not been migrated yet, start the migration process
+	// in a background goroutine.
+	if status == NotMigrated {
+		s.triggerMigration(partitionID)
+	}
+
+	return rows, agg, nil
+}
+
+// All retrieves all documents in a store.
+func (s *ProgressiveMigrationStore) All(count int, skip int, store string) (common.ObjectRows, error) {
+	partitionID := store
+	status, err := s.getPartitionStatus(partitionID)
+	if err != nil {
+		return nil, err
+	}
+
+	if status == Migrated {
+		return s.secondary.All(count, skip, store)
+	}
+
+	// If the partition is not migrated or is in the process of being migrated,
+	// serve the request from the primary store.
+	rows, err := s.primary.All(count, skip, store)
+	if err != nil {
+		return nil, err
+	}
+
+	// If the partition has not been migrated yet, start the migration process
+	// in a background goroutine.
+	if status == NotMigrated {
+		s.triggerMigration(partitionID)
+	}
+
+	return rows, nil
+}
+
+// AllCursor retrieves all documents in a store using a cursor.
+func (s *ProgressiveMigrationStore) AllCursor(store string) (common.ObjectRows, error) {
+	// For simplicity, we'll always read from the primary store for AllCursor.
+	return s.primary.AllCursor(store)
+}
+
+// Since retrieves all documents after a specific ID.
+func (s *ProgressiveMigrationStore) Since(id string, count int, skip int, store string) (common.ObjectRows, error) {
+	partitionID := store
+	status, err := s.getPartitionStatus(partitionID)
+	if err != nil {
+		return nil, err
+	}
+
+	if status == Migrated {
+		return s.secondary.Since(id, count, skip, store)
+	}
+
+	// If the partition is not migrated or is in the process of being migrated,
+	// serve the request from the primary store.
+	rows, err := s.primary.Since(id, count, skip, store)
+	if err != nil {
+		return nil, err
+	}
+
+	// If the partition has not been migrated yet, start the migration process
+	// in a background goroutine.
+	if status == NotMigrated {
+		s.triggerMigration(partitionID)
+	}
+
+	return rows, nil
+}
+
+// Before retrieves all documents before a specific ID.
+func (s *ProgressiveMigrationStore) Before(id string, count int, skip int, store string) (common.ObjectRows, error) {
+	partitionID := store
+	status, err := s.getPartitionStatus(partitionID)
+	if err != nil {
+		return nil, err
+	}
+
+	if status == Migrated {
+		return s.secondary.Before(id, count, skip, store)
+	}
+
+	// If the partition is not migrated or is in the process of being migrated,
+	// serve the request from the primary store.
+	rows, err := s.primary.Before(id, count, skip, store)
+	if err != nil {
+		return nil, err
+	}
+
+	// If the partition has not been migrated yet, start the migration process
+	// in a background goroutine.
+	if status == NotMigrated {
+		s.triggerMigration(partitionID)
+	}
+
+	return rows, nil
+}
+
+// GetByField retrieves a document by a specific field and value.
+func (s *ProgressiveMigrationStore) GetByField(name, val, store string, dst interface{}) error {
+	partitionID := store
+	status, err := s.getPartitionStatus(partitionID)
+	if err != nil {
+		return err
+	}
+
+	if status == Migrated {
+		return s.secondary.GetByField(name, val, store, dst)
+	}
+
+	// If the partition is not migrated or is in the process of being migrated,
+	// serve the request from the primary store.
+	err = s.primary.GetByField(name, val, store, dst)
+	if err != nil {
+		return err
+	}
+
+	// If the partition has not been migrated yet, start the migration process
+	// in a background goroutine.
+	if status == NotMigrated {
+		s.triggerMigration(partitionID)
+	}
+
+	return nil
+}
+
+// GetByFieldsByField retrieves a document by a specific field and value, selecting specific fields.
+func (s *ProgressiveMigrationStore) GetByFieldsByField(name, val, store string, fields []string, dst interface{}) (err error) {
+	partitionID := store
+	status, err := s.getPartitionStatus(partitionID)
+	if err != nil {
+		return err
+	}
+
+	if status == Migrated {
+		return s.secondary.GetByFieldsByField(name, val, store, fields, dst)
+	}
+
+	// If the partition is not migrated or is in the process of being migrated,
+	// serve the request from the primary store.
+	err = s.primary.GetByFieldsByField(name, val, store, fields, dst)
+	if err != nil {
+		return err
+	}
+
+	// If the partition has not been migrated yet, start the migration process
+	// in a background goroutine.
+	if status == NotMigrated {
+		s.triggerMigration(partitionID)
+	}
+
+	return nil
+}
+
+// Stats returns basic statistics about the store.
+func (s *ProgressiveMigrationStore) Stats(store string) (map[string]interface{}, error) {
+	partitionID := store
+	status, err := s.getPartitionStatus(partitionID)
+	if err != nil {
+		return nil, err
+	}
+
+	if status == Migrated {
+		return s.secondary.Stats(store)
+	}
+
+	// If the partition is not migrated or is in the process of being migrated,
+	// serve the request from the primary store.
+	stats, err := s.primary.Stats(store)
+	if err != nil {
+		return nil, err
+	}
+
+	// If the partition has not been migrated yet, start the migration process
+	// in a background goroutine.
+	if status == NotMigrated {
+		s.triggerMigration(partitionID)
+	}
+
+	return stats, nil
+}
+
+// GetStore returns the underlying store (map) for a specific database.
+func (s *ProgressiveMigrationStore) GetStore() interface{} {
+	// For simplicity, we'll always return the primary store's underlying store.
+	return s.primary.GetStore()
+}
+
+// CreateTable creates a new table (collection) within a database.
+func (s *ProgressiveMigrationStore) CreateTable(table string, sample interface{}) error {
+	err := s.primary.CreateTable(table, sample)
+	if err != nil {
+		return err
+	}
+	if err := s.secondary.CreateTable(table, sample); err != nil {
+		s.logger.Error("failed to create table in secondary store", "error", err, "table", table)
+	}
+	return nil
+}
+
+// CreateDatabase creates a new database (store) in memory.
+func (s *ProgressiveMigrationStore) CreateDatabase() error {
+	err := s.primary.CreateDatabase()
+	if err != nil {
+		return err
+	}
+	if err := s.secondary.CreateDatabase(); err != nil {
+		s.logger.Error("failed to create database in secondary store", "error", err)
+	}
+	return nil
+}
+
+// SaveAll inserts multiple documents into the store.
+func (s *ProgressiveMigrationStore) SaveAll(store string, src ...interface{}) (keys []string, err error) {
+	keys, err = s.primary.SaveAll(store, src...)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := s.secondary.SaveAll(store, src...); err != nil {
+		s.logger.Error("failed to save all to secondary store", "error", err, "store", store)
+	}
+	return keys, nil
+}
+
+// AllWithinRange retrieves all documents within a specified range.
+func (s *ProgressiveMigrationStore) AllWithinRange(filter map[string]interface{}, count int, skip int, store string, opts common.ObjectStoreOptions) (common.ObjectRows, error) {
+	partitionID := store
+	status, err := s.getPartitionStatus(partitionID)
+	if err != nil {
+		return nil, err
+	}
+
+	if status == Migrated {
+		return s.secondary.AllWithinRange(filter, count, skip, store, opts)
+	}
+
+	// If the partition is not migrated or is in the process of being migrated,
+	// serve the request from the primary store.
+	rows, err := s.primary.AllWithinRange(filter, count, skip, store, opts)
+	if err != nil {
+		return nil, err
+	}
+
+	// If the partition has not been migrated yet, start the migration process
+	// in a background goroutine.
+	if status == NotMigrated {
+		s.triggerMigration(partitionID)
+	}
+
+	return rows, nil
+}
+
+// FilterSince retrieves all documents after a specific ID and matching a filter.
+func (s *ProgressiveMigrationStore) FilterSince(id string, filter map[string]interface{}, count int, skip int, store string, opts common.ObjectStoreOptions) (common.ObjectRows, error) {
+	partitionID := store
+	status, err := s.getPartitionStatus(partitionID)
+	if err != nil {
+		return nil, err
+	}
+
+	if status == Migrated {
+		return s.secondary.FilterSince(id, filter, count, skip, store, opts)
+	}
+
+	// If the partition is not migrated or is in the process of being migrated,
+	// serve the request from the primary store.
+	rows, err := s.primary.FilterSince(id, filter, count, skip, store, opts)
+	if err != nil {
+		return nil, err
+	}
+
+	// If the partition has not been migrated yet, start the migration process
+	// in a background goroutine.
+	if status == NotMigrated {
+		s.triggerMigration(partitionID)
+	}
+
+	return rows, nil
+}
+
+// FilterBefore retrieves all documents before a specific ID and matching a filter.
+func (s *ProgressiveMigrationStore) FilterBefore(id string, filter map[string]interface{}, count int, skip int, store string, opts common.ObjectStoreOptions) (common.ObjectRows, error) {
+	partitionID := store
+	status, err := s.getPartitionStatus(partitionID)
+	if err != nil {
+		return nil, err
+	}
+
+	if status == Migrated {
+		return s.secondary.FilterBefore(id, filter, count, skip, store, opts)
+	}
+
+	// If the partition is not migrated or is in the process of being migrated,
+	// serve the request from the primary store.
+	rows, err := s.primary.FilterBefore(id, filter, count, skip, store, opts)
+	if err != nil {
+		return nil, err
+	}
+
+	// If the partition has not been migrated yet, start the migration process
+	// in a background goroutine.
+	if status == NotMigrated {
+		s.triggerMigration(partitionID)
+	}
+
+	return rows, nil
+}
+
+// FilterBeforeCount counts all documents before a specific ID and matching a filter.
+func (s *ProgressiveMigrationStore) FilterBeforeCount(id string, filter map[string]interface{}, size int, skip int, store string, opts common.ObjectStoreOptions) (int64, error) {
+	partitionID := store
+	status, err := s.getPartitionStatus(partitionID)
+	if err != nil {
+		return 0, err
+	}
+
+	if status == Migrated {
+		return s.secondary.FilterBeforeCount(id, filter, size, skip, store, opts)
+	}
+
+	// If the partition is not migrated or is in the process of being migrated,
+	// serve the request from the primary store.
+	count, err := s.primary.FilterBeforeCount(id, filter, size, skip, store, opts)
+	if err != nil {
+		return 0, err
+	}
+
+	// If the partition has not been migrated yet, start the migration process
+	// in a background goroutine.
+	if status == NotMigrated {
+		s.triggerMigration(partitionID)
+	}
+
+	return count, nil
+}
+
 // Get gets an object from the store. It implements the on-demand migration logic.
 // If the partition for the given key has been migrated, the object is read from
 // the secondary store. Otherwise, it is read from the primary store, and a
@@ -292,14 +747,22 @@ func (s *ProgressiveMigrationStore) triggerMigration(partitionID string) {
 		return
 	}
 
-	// Enqueue a migration job.
-	s.workerPool.Enqueue(&migrationJob{
+	// Enqueue a migration job and wait for it to complete.
+	job := &migrationJob{
 		store:       s,
 		partitionID: partitionID,
-	})
+		done:        make(chan bool),
+	}
+	s.workerPool.Enqueue(job)
+	<-job.done
 }
 
-func (s *ProgressiveMigrationStore) migratePartition(partitionID string) {
+func (s *ProgressiveMigrationStore) migratePartition(partitionID string, done chan bool) {
+	defer func() {
+		if done != nil {
+			close(done)
+		}
+	}()
 	s.logger.Info("starting partition migration", "partitionID", partitionID)
 
 	// Get the current migration metadata for the partition.
@@ -320,15 +783,16 @@ func (s *ProgressiveMigrationStore) migratePartition(partitionID string) {
 	}
 
 	if err != nil {
-		s.logger.Error("failed to get cursor for partition", "error", err, "partitionID", partitionID)
+		s.logger.Error("failed to get data from primary store", "error", err, "partitionID", partitionID)
 		return
 	}
 	defer rows.Close()
 
-	var objects []any
-	var lastKey string
+	batch := make([]interface{}, 0, s.batchSize)
+	lastMigratedKey := ""
+
 	for {
-		var obj common.HasID
+		var obj map[string]interface{}
 		hasNext, err := rows.Next(&obj)
 		if err != nil {
 			s.logger.Error("cursor error during migration", "error", err, "partitionID", partitionID)
@@ -338,52 +802,37 @@ func (s *ProgressiveMigrationStore) migratePartition(partitionID string) {
 			break
 		}
 
-		objects = append(objects, obj)
-		lastKey = obj.GetId()
+		batch = append(batch, obj)
+		lastMigratedKey = obj["id"].(string)
 
-		if len(objects) >= s.batchSize {
-			if err := s.flushBatch(partitionID, objects, lastKey); err != nil {
-				return // Error is already logged in flushBatch
+		if len(batch) == s.batchSize {
+			if _, err := s.secondary.BatchInsert(batch, partitionID, nil); err != nil {
+				s.logger.Error("failed to insert batch into secondary store", "error", err, "partitionID", partitionID)
+				// Don't return here, as we want to update the metadata with the last successful key.
 			}
-			objects = nil // Reset batch
+			metadata.LastMigratedKey = lastMigratedKey
+			if _, err := s.metadata.Save(partitionID, "migration_status", &metadata); err != nil {
+				s.logger.Error("failed to update partition metadata", "error", err, "partitionID", partitionID)
+				return
+			}
+			batch = make([]interface{}, 0, s.batchSize)
 		}
 	}
 
-	// Flush any remaining objects.
-	if len(objects) > 0 {
-		if err := s.flushBatch(partitionID, objects, lastKey); err != nil {
-			return
+	// Insert any remaining objects in the batch.
+	if len(batch) > 0 {
+		if _, err := s.secondary.BatchInsert(batch, partitionID, nil); err != nil {
+			s.logger.Error("failed to insert final batch into secondary store", "error", err, "partitionID", partitionID)
 		}
 	}
 
-	// Update the partition status to Migrated.
+	// Mark the partition as migrated.
 	metadata.Status = Migrated
+	metadata.LastMigratedKey = "" // Clear the last migrated key.
 	if _, err := s.metadata.Save(partitionID, "migration_status", &metadata); err != nil {
 		s.logger.Error("failed to update partition status to Migrated", "error", err, "partitionID", partitionID)
-		return
 	}
-
 	s.logger.Info("partition migration completed", "partitionID", partitionID)
-}
-
-func (s *ProgressiveMigrationStore) flushBatch(partitionID string, objects []any, lastKey string) error {
-	if _, err := s.secondary.BatchInsert(objects, partitionID, nil); err != nil {
-		s.logger.Error("failed to batch insert objects into secondary store", "error", err, "partitionID", partitionID)
-		return err
-	}
-
-	// Update the last migrated key.
-	metadata := PartitionMetadata{
-		ID:              partitionID,
-		Status:          MigrationInProgress,
-		LastMigratedKey: lastKey,
-	}
-	if _, err := s.metadata.Save(partitionID, "migration_status", &metadata); err != nil {
-		s.logger.Error("failed to update last migrated key", "error", err, "partitionID", partitionID)
-		return err
-	}
-
-	return nil
 }
 
 // FilterGet gets an object from the store based on a filter.
@@ -441,9 +890,10 @@ func (s *ProgressiveMigrationStore) Close() {
 type migrationJob struct {
 	store       *ProgressiveMigrationStore
 	partitionID string
+	done        chan bool
 }
 
 // Execute executes the migration job.
 func (j *migrationJob) Execute() {
-	j.store.migratePartition(j.partitionID)
+	j.store.migratePartition(j.partitionID, j.done)
 }
