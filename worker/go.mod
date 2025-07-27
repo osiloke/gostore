@@ -1,3 +1,3 @@
 module github.com/osiloke/gostore/worker
 
-go 1.21
+go 1.23.0
