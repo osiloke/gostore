@@ -197,19 +197,17 @@ type TransactionRows struct {
 
 // Next get next item
 func (s *TransactionRows) Next(dst interface{}) (bool, error) {
-	err := common.ErrEOF
 	if s.ci < s.length {
+		val := s.entries[s.ci][1]
+		err := json.Unmarshal(val, dst)
 		if err == nil {
-			val := s.entries[s.ci][1]
-			err = json.Unmarshal(val, dst)
-			if err == nil {
-				s.ci++
-				return true, nil
-			}
-			logger.Warn(err.Error())
+			s.ci++
+			return true, nil
 		}
+		logger.Warn(err.Error())
+		return false, err
 	}
-	return false, err
+	return false, common.ErrEOF
 }
 
 // NextRaw get next raw item

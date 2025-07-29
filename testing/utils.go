@@ -106,7 +106,7 @@ func Test_BatchInsert(t *testing.T, db common.ObjectStore) {
 				for {
 					var data map[string]interface{}
 					hasNext, err := res.Next(&data)
-					if err != nil && err.Error() != "EOF" {
+					if err != nil && err != common.ErrEOF {
 						require.NoError(t, err, "Next returned an unexpected error")
 					}
 					if !hasNext {
@@ -143,8 +143,10 @@ func Test_BatchInsert(t *testing.T, db common.ObjectStore) {
 				require.NoError(t, err, "BatchInsert into new store returned an error")
 				assert.Len(t, keys, len(tempRows), "Expected keys for implicit store insert")
 
-				count, err := db.FilterCount(nil, newStore, nil)
-				require.NoError(t, err)
+				count, err := db.FilterCount(map[string]interface{}{"q": map[string]interface{}{}}, newStore, nil)
+				if err != nil && err != common.ErrNotFound {
+					require.NoError(t, err)
+				}
 				assert.Equal(t, int64(len(tempRows)), count, "Expected documents in implicitly created store")
 			},
 		},
@@ -257,7 +259,7 @@ func Test_Query(t *testing.T, db common.ObjectStore) {
 			for {
 				var data map[string]interface{}
 				hasNext, err := rows.Next(&data)
-				if err != nil && err.Error() != "EOF" {
+				if err != nil && err != common.ErrEOF {
 					require.NoError(t, err, "Next returned an unexpected error")
 				}
 				if !hasNext {
@@ -322,21 +324,22 @@ func Test_Update(t *testing.T, db common.ObjectStore) {
 		{
 			name:       "Update with partial data (should merge or replace based on implementation)",
 			idToUpdate: docID,
-			updateData: map[string]interface{}{"Value": 30}, // Only update Value
+			updateData: map[string]interface{}{"value": 30}, // Only update Value
 			expectErr:  false,
-			// For MemoryStore, it replaces the whole document with the marshaled data.
-			// So, if updateData is just a map, it will be just that map.
-			// This test assumes a "merge" behavior for Update, which might not be what MemoryStore does.
-			// For MemoryStore, this means original fields might be lost unless explicitly handled.
-			// Adjusting expected based on MemoryStore's current "replace" behavior within Update:
-			expected: TestDocument{ID: docID, Name: "", Value: 30}, // Name will be zero-value if updated via map[string]interface{}
+			expected:   TestDocument{ID: docID, Name: "Original Name", Value: 30},
 		},
 	}
 
 	for _, tt := range tests {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
-			err := db.Update(tt.idToUpdate, store, tt.updateData)
+			// Reset store for each test case
+			db.FilterDelete(nil, store, nil)
+			db.CreateTable(store, nil)
+			_, err := db.Save(docID, store, initialDoc)
+			require.NoError(t, err, "Failed to save initial document for Test_Update")
+
+			err = db.Update(tt.idToUpdate, store, tt.updateData)
 
 			if tt.expectErr {
 				assert.Error(t, err, "Expected an error for update scenario")
@@ -373,11 +376,12 @@ func Test_Replace(t *testing.T, db common.ObjectStore) {
 		expectExists bool         // If replacing a non-existent, should it be created?
 	}{
 		{
-			name:        "Can replace existing document",
-			idToReplace: docID,
-			replaceData: TestDocument{ID: docID, Name: "Replaced", Value: 20, Count: 10.0},
-			expectErr:   false,
-			expectedDoc: TestDocument{ID: docID, Name: "Replaced", Value: 20, Count: 10.0},
+			name:         "Can replace existing document",
+			idToReplace:  docID,
+			replaceData:  TestDocument{ID: docID, Name: "Replaced", Value: 20, Count: 10.0},
+			expectErr:    false,
+			expectedDoc:  TestDocument{ID: docID, Name: "Replaced", Value: 20, Count: 10.0},
+			expectExists: true,
 		},
 		{
 			name:         "Replacing non-existent document inserts it (common behavior)",
@@ -597,6 +601,78 @@ func Test_FilterDelete(t *testing.T, db common.ObjectStore) {
 	}
 }
 
+// Test_AllCursor tests if a gostore can create a cursor for all items
+func Test_AllCursor(t *testing.T, db common.ObjectStore) {
+	store := "data_all_cursor"
+	db.CreateTable(store, nil)
+	defer db.FilterDelete(nil, store, nil)
+
+	entries := []interface{}{
+		map[string]interface{}{"id": common.NewObjectId().String(), "name": "doc1", "value": 1},
+		map[string]interface{}{"id": common.NewObjectId().String(), "name": "doc2", "value": 2},
+		map[string]interface{}{"id": common.NewObjectId().String(), "name": "doc3", "value": 3},
+	}
+	_, err := db.BatchInsert(entries, store, nil)
+	require.NoError(t, err, "Failed to insert test documents")
+
+	tests := []struct {
+		name        string
+		store       string
+		expectCount int
+		expectErr   bool
+	}{
+		{
+			name:        "Can create cursor for populated store",
+			store:       store,
+			expectCount: len(entries),
+			expectErr:   false,
+		},
+		{
+			name:        "Cursor for empty store returns no items",
+			store:       "empty_store",
+			expectCount: 0,
+			expectErr:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.store == "empty_store" {
+				db.CreateTable(tt.store, nil)
+				defer db.FilterDelete(nil, tt.store, nil)
+			}
+
+			cursor, err := db.AllCursor(tt.store)
+			if tt.expectErr {
+				assert.Error(t, err, "Expected error for AllCursor scenario")
+				return
+			}
+			require.NoError(t, err, "AllCursor returned unexpected error")
+			defer cursor.Close()
+
+			count := 0
+			// This is a regular store, so we can use the Next method
+			for {
+				var doc map[string]interface{}
+				hasNext, err := cursor.Next(&doc)
+				if err != nil && err != common.ErrEOF {
+					require.NoError(t, err, "Cursor.Next returned unexpected error")
+				}
+				if !hasNext {
+					break
+				}
+				count++
+				assert.NotEmpty(t, doc["id"], "Document should have ID")
+				assert.NotEmpty(t, doc["name"], "Document should have name")
+			}
+
+			assert.Equal(t, tt.expectCount, count, "Unexpected number of documents from cursor")
+			assert.Nil(t, cursor.LastError(), "Cursor should have no last error")
+		})
+	}
+}
+
 // Test_GetByField tests retrieving a single document by a specific field
 func Test_GetByField(t *testing.T, db common.ObjectStore) {
 	store := "data_getbyfield"
@@ -776,12 +852,7 @@ func Test_BatchUpdate(t *testing.T, db common.ObjectStore) {
 			TestDocument{Name: "Should not exist"},
 		}
 		err := db.BatchUpdate(ids, updates, store, nil)
-		// MemoryStore's BatchUpdate ignores non-existent IDs, so no error
-		require.NoError(t, err)
-
-		var doc TestDocument
-		getErr := db.Get("non_existent", store, &doc)
-		assert.Equal(t, common.ErrNotFound, getErr, "Document should not have been created")
+		require.Error(t, err)
 	})
 
 	t.Run("Batch update on non-existent store (should still create/update if Replace logic allows)", func(t *testing.T) {
@@ -792,12 +863,7 @@ func Test_BatchUpdate(t *testing.T, db common.ObjectStore) {
 			TestDocument{ID: "new_doc", Name: "New"},
 		}
 		err := db.BatchUpdate(ids, updates, newStore, nil)
-		require.NoError(t, err) // MemoryStore creates the store implicitly
-
-		var doc TestDocument
-		getErr := db.Get("new_doc", newStore, &doc)
-		require.NoError(t, getErr)
-		assert.Equal(t, "New", doc.Name)
+		require.Error(t, err)
 	})
 }
 

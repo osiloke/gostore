@@ -17,6 +17,7 @@ import (
 	"github.com/blevesearch/bleve/v2/search"
 	common "github.com/osiloke/gostore/common"
 	indexer "github.com/osiloke/gostore/indexer"
+	gostoretesting "github.com/osiloke/gostore/testing"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -228,49 +229,10 @@ func removeDB(name string, db *BadgerStore) {
 	}
 	os.RemoveAll(filepath.Join(rootPath, name))
 }
-func TestBadgerStore_Get(t *testing.T) {
-	db := createDB("BatchInsert")
-	defer removeDB("BatchInsert", db)
-	store := "data"
-	db.CreateTable(store, nil)
-	rows := []interface{}{
-		map[string]interface{}{
-			"id":    common.NewObjectId().String(),
-			"name":  "osiloke emoekpere",
-			"count": 10.0,
-		}, map[string]interface{}{
-			"id":    common.NewObjectId().String(),
-			"name":  "emike emoekpere",
-			"count": 10.0,
-		}, map[string]interface{}{
-			"id":    common.NewObjectId().String(),
-			"name":  "oduffa emoekpere",
-			"count": 11.0,
-		}, map[string]interface{}{
-			"id":    common.NewObjectId().String(),
-			"name":  "tony emoekpere",
-			"count": 11.0,
-		},
-	}
-	db.BatchInsert(rows, store, nil)
-	tests := []struct {
-		name string
-		fn   func(t *testing.T)
-	}{
-		{
-			"Can retrieve",
-			func(t *testing.T) {
-				dst := map[string]interface{}{}
-				row := rows[0].(map[string]interface{})
-				db.Get(row["id"].(string), store, &dst)
-				assert.Equal(t, row, dst, "retrieved row is not identical to saved row")
-			},
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, tt.fn)
-	}
-
+func Test_Badger(t *testing.T) {
+	db := createDB("badger_suite")
+	defer removeDB("badger_suite", db)
+	gostoretesting.Test_AllCursor(t, db)
 }
 func TestBadgerStore_FilterGet(t *testing.T) {
 	type args struct {

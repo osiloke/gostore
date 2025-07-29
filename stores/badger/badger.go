@@ -5,11 +5,9 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io/ioutil"
 	"time"
 
-	// "fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -651,9 +649,9 @@ func (s *BadgerStore) Cursor() (common.Iterator, error) {
 func (s *BadgerStore) AllCursor(store string) (common.ObjectRows, error) {
 	rows := common.NewCursorRows()
 	go func(rows *common.CursorRows) {
-		defer func() {
-			rows.Done() <- true
-		}()
+		// 1. CRITICAL: Ensure ProducerDone is always called to prevent the consumer from blocking forever.
+		defer rows.ProducerDone()
+
 		err := s.Db.View(func(txn *badgerdb.Txn) error {
 			opts := badgerdb.DefaultIteratorOptions
 			opts.PrefetchSize = 10
@@ -662,47 +660,40 @@ func (s *BadgerStore) AllCursor(store string) (common.ObjectRows, error) {
 
 			prefix := []byte(s.keyForTable(store))
 			it.Seek(prefix)
-		OUTER:
-			for {
-				select {
-				case <-rows.Exit():
-					break OUTER
-				case <-rows.NextChan():
-				NEXTAGAIN:
-					if !it.Valid() || !it.ValidForPrefix(prefix) {
-						fmt.Println("invalid")
-						continue
-					}
-					item := it.Item()
-					k := item.KeyCopy(nil)
-					v, err := item.ValueCopy(nil)
-					if err != nil {
-						return err
-					}
 
-					obj := make([][]byte, 2)
-					obj[0] = make([]byte, len(k))
-					copy(obj[0], k)
-					unsplit := bytes.SplitN(k, []byte("|"), -1)
-					k = unsplit[1]
-					sn := string(bytes.SplitN(unsplit[0], []byte("$"), -1)[1])
-
-					if sn == store {
-						obj[1] = make([]byte, len(v))
-						copy(obj[1], v)
-						rows.OnNext([][]byte{k, v})
-					} else {
-						it.Next()
-						goto NEXTAGAIN
-					}
-					it.Next()
+			for it.ValidForPrefix(prefix) {
+				item := it.Item()
+				v, err := item.ValueCopy(nil)
+				if err != nil {
+					return err // Propagate error to the outer 'err' variable
 				}
+
+				k := item.KeyCopy(nil)
+				keyParts := bytes.SplitN(k, []byte("|"), 2)
+				if len(keyParts) < 2 {
+					it.Next()
+					continue
+				}
+				id := keyParts[1]
+
+				// 2. IMPROVEMENT: Check if the consumer has closed the cursor.
+				// This stops pointless work if the consumer is no longer listening.
+				if !rows.OnNext([][]byte{id, v}) {
+					// Consumer has called Close(). Exit the transaction gracefully.
+					return nil
+				}
+
+				it.Next()
 			}
 
 			return nil
 		})
+
+		// 3. IMPROVEMENT: If an error occurred, communicate it to the consumer.
 		if err != nil {
 			logger.Error("cursor rows for "+store+" failed", "err", err.Error())
+			// This allows the consumer to see the error by calling rows.LastError()
+			rows.SetLastError(err)
 		}
 	}(rows)
 	return rows, nil
@@ -1220,19 +1211,24 @@ func (s *BadgerStore) FilterDelete(query map[string]interface{}, store string, o
 }
 
 func (s *BadgerStore) FilterCount(filter map[string]interface{}, store string, opts common.ObjectStoreOptions) (int64, error) {
-	if query, ok := filter["q"].(map[string]interface{}); ok {
-		q := indexer.GetQueryString(store, query)
-		logger.Info("FilterCount", "Store", store, "query", q)
-		res, err := s.Indexer.Query(indexer.GetQueryString(store, query))
-		if err != nil {
-			return 0, err
+	var query map[string]interface{}
+	if filter != nil {
+		if q, ok := filter["q"].(map[string]interface{}); ok {
+			query = q
 		}
-		if res.Total == 0 {
-			return 0, common.ErrNotFound
-		}
-		return int64(res.Total), nil
+	} else {
+		return 0, common.ErrNotFound
 	}
-	return 0, common.ErrNotFound
+	q := indexer.GetQueryString(store, query)
+	logger.Info("FilterCount", "Store", store, "query", q)
+	res, err := s.Indexer.Query(q)
+	if err != nil {
+		return 0, err
+	}
+	if res.Total == 0 {
+		return 0, common.ErrNotFound
+	}
+	return int64(res.Total), nil
 }
 
 // Misc gets
