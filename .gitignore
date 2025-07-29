@@ -17,5 +17,3 @@ gostore_v4
 
 # Test data
 /stores/mongodb/test/
-
-Makefile
