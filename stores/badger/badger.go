@@ -36,6 +36,22 @@ type TableConfig struct {
 	NestedBucketFieldMatcher map[string]*regexp.Regexp //defines fields to be used to extract nested buckets for data
 }
 
+// KeyFormat provides a customizable format for storage keys.
+type KeyFormat struct {
+	TablePrefix string
+	IdSeparator string
+}
+
+// StoreOpt defines a function that configures a BadgerStore.
+type StoreOpt func(*BadgerStore)
+
+// WithKeyFormat is a store option that sets the key format.
+func WithKeyFormat(kf KeyFormat) StoreOpt {
+	return func(s *BadgerStore) {
+		s.KeyFormat = kf
+	}
+}
+
 // BadgerStore gostore implementation that used badgerdb
 type BadgerStore struct {
 	Bucket      []byte
@@ -44,6 +60,7 @@ type BadgerStore struct {
 	tableConfig map[string]*TableConfig
 	t           *time.Ticker
 	done        chan bool
+	KeyFormat   KeyFormat
 }
 
 // IndexedData represents a stored row
@@ -87,7 +104,7 @@ func (s *BadgerStore) setupTicker() {
 	}()
 	logger.Debug("setup ticker")
 }
-func NewDBOnly(dbPath string) (s *BadgerStore, err error) {
+func NewDBOnly(dbPath string, opts ...StoreOpt) (s *BadgerStore, err error) {
 	opt := BadgerDefaultOptions(dbPath)
 	db, err := badgerdb.Open(opt)
 	if err != nil {
@@ -95,19 +112,24 @@ func NewDBOnly(dbPath string) (s *BadgerStore, err error) {
 		return
 	}
 	s = &BadgerStore{
-		[]byte("_default"),
-		db,
-		nil,
-		make(map[string]*TableConfig),
-		nil,
-		nil,
+		Bucket:      []byte("_default"),
+		Db:          db,
+		Indexer:     nil,
+		tableConfig: make(map[string]*TableConfig),
+		KeyFormat: KeyFormat{
+			TablePrefix: "t$",
+			IdSeparator: "|",
+		},
+	}
+	for _, opt := range opts {
+		opt(s)
 	}
 	s.setupTicker()
 	return
 }
 
 // New badger store
-func New(root string) (s *BadgerStore, err error) {
+func New(root string, opts ...StoreOpt) (s *BadgerStore, err error) {
 	dbPath := filepath.Join(root, "db")
 	logger.Debug("New badgerdb", "path", dbPath)
 	indexPath := filepath.Join(root, "db.index")
@@ -129,12 +151,17 @@ func New(root string) (s *BadgerStore, err error) {
 	indexMapping.StoreDynamic = false
 	index := indexer.NewIndexer(indexPath, indexMapping)
 	s = &BadgerStore{
-		[]byte("_default"),
-		db,
-		index,
-		make(map[string]*TableConfig),
-		nil,
-		nil,
+		Bucket:      []byte("_default"),
+		Db:          db,
+		Indexer:     index,
+		tableConfig: make(map[string]*TableConfig),
+		KeyFormat: KeyFormat{
+			TablePrefix: "t$",
+			IdSeparator: "|",
+		},
+	}
+	for _, opt := range opts {
+		opt(s)
 	}
 	s.setupTicker()
 	return
@@ -180,7 +207,7 @@ func ListKeys(db *badgerdb.DB, allVersion bool) error {
 }
 
 // NewWithIndexer New badger store with indexer
-func NewWithIndexer(root string, index indexer.Indexer) (s *BadgerStore, err error) {
+func NewWithIndexer(root string, index indexer.Indexer, opts ...StoreOpt) (s *BadgerStore, err error) {
 	if _, err := os.Stat(root); os.IsNotExist(err) {
 		os.Mkdir(root, os.FileMode(0700))
 		logger.Debug("created root path " + root)
@@ -198,12 +225,17 @@ func NewWithIndexer(root string, index indexer.Indexer) (s *BadgerStore, err err
 		return
 	}
 	s = &BadgerStore{
-		[]byte("_default"),
-		db,
-		index,
-		make(map[string]*TableConfig),
-		nil,
-		nil,
+		Bucket:      []byte("_default"),
+		Db:          db,
+		Indexer:     index,
+		tableConfig: make(map[string]*TableConfig),
+		KeyFormat: KeyFormat{
+			TablePrefix: "t$",
+			IdSeparator: "|",
+		},
+	}
+	for _, opt := range opts {
+		opt(s)
 	}
 	s.setupTicker()
 	//	e.CreateBucket(bucket)
@@ -218,7 +250,7 @@ var indexFilenamePrefix = map[string]string{
 }
 
 // NewWithIndex New badger store with indexer
-func NewWithIndex(root, index string, indexMapping mapping.IndexMapping, indexOpts ...indexer.IndexOptions) (s *BadgerStore, err error) {
+func NewWithIndex(root, index string, indexMapping mapping.IndexMapping, indexOpts []indexer.IndexOptions, storeOpts ...StoreOpt) (s *BadgerStore, err error) {
 	if _, err := os.Stat(root); os.IsNotExist(err) {
 		os.Mkdir(root, os.FileMode(0700))
 		logger.Debug("created root path " + root)
@@ -281,7 +313,7 @@ func NewWithIndex(root, index string, indexMapping mapping.IndexMapping, indexOp
 	for _, opt := range indexOpts {
 		opt(geoIndex)
 	}
-	s, err = NewWithIndexer(root, geoIndex)
+	s, err = NewWithIndexer(root, geoIndex, storeOpts...)
 	if reIndex {
 		ixj, _ := json.Marshal(ix.Index().Mapping())
 		logger.Debug("reindex db", "mapping", string(ixj))
@@ -298,10 +330,10 @@ func (s *BadgerStore) CreateDatabase() error {
 }
 
 func (s *BadgerStore) keyForTable(table string) string {
-	return "t$" + table
+	return s.KeyFormat.TablePrefix + table
 }
 func (s *BadgerStore) keyForTableId(table, id string) string {
-	return s.keyForTable(table) + "|" + id
+	return s.keyForTable(table) + s.KeyFormat.IdSeparator + id
 }
 
 func (s *BadgerStore) CreateTable(table string, config interface{}) error {

@@ -34,7 +34,7 @@ var restoreCmd = &cobra.Command{
 		rootPath := fmt.Sprintf("./%s_restored/", filename)
 		os.RemoveAll(rootPath)
 		os.Mkdir(rootPath, os.FileMode(mode))
-		db, err := badger.NewWithIndex(rootPath, "", bleve.NewIndexMapping())
+		db, err := badger.NewWithIndex(rootPath, "", bleve.NewIndexMapping(), nil)
 		if err != nil {
 			panic(err)
 		}

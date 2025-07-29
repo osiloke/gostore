@@ -86,7 +86,7 @@ func createDB(name string) *BadgerStore {
 	if err != nil {
 		panic(err)
 	}
-	_db, err := NewWithIndex(testDbPath, "memory", indexMapping)
+	_db, err := NewWithIndex(testDbPath, "memory", indexMapping, nil)
 	if err != nil {
 		panic(err)
 	}
@@ -215,7 +215,7 @@ func createGeoDB(name, geoField, documentName, typefield string) *BadgerStore {
 	geoMapping.AddFieldMappingsAt(geoField, locationMapping)
 	indexMapping.AddDocumentMapping(documentName, geoMapping)
 	indexMapping.TypeField = typefield
-	_db, err := NewWithIndex(testDbPath, "memory", indexMapping, indexer.WithGeoField(geoField))
+	_db, err := NewWithIndex(testDbPath, "memory", indexMapping, []indexer.IndexOptions{indexer.WithGeoField(geoField)})
 	if err != nil {
 		panic(err)
 	}
