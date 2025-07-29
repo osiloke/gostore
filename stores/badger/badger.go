@@ -113,7 +113,7 @@ func New(root string) (s *BadgerStore, err error) {
 	indexPath := filepath.Join(root, "db.index")
 	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
 
-		os.Mkdir(dbPath, os.FileMode(0600))
+		os.Mkdir(dbPath, os.FileMode(0700))
 		logger.Debug("made badger db", "path", dbPath)
 	}
 
@@ -182,12 +182,12 @@ func ListKeys(db *badgerdb.DB, allVersion bool) error {
 // NewWithIndexer New badger store with indexer
 func NewWithIndexer(root string, index indexer.Indexer) (s *BadgerStore, err error) {
 	if _, err := os.Stat(root); os.IsNotExist(err) {
-		os.Mkdir(root, os.FileMode(0755))
+		os.Mkdir(root, os.FileMode(0700))
 		logger.Debug("created root path " + root)
 	}
 	dbPath := filepath.Join(root, "db")
 	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
-		os.Mkdir(dbPath, os.FileMode(0755))
+		os.Mkdir(dbPath, os.FileMode(0700))
 		logger.Debug("created badger directory " + dbPath)
 	}
 
@@ -220,7 +220,7 @@ var indexFilenamePrefix = map[string]string{
 // NewWithIndex New badger store with indexer
 func NewWithIndex(root, index string, indexMapping mapping.IndexMapping, indexOpts ...indexer.IndexOptions) (s *BadgerStore, err error) {
 	if _, err := os.Stat(root); os.IsNotExist(err) {
-		os.Mkdir(root, os.FileMode(0755))
+		os.Mkdir(root, os.FileMode(0700))
 		logger.Debug("created root path " + root)
 	}
 	indexPath := filepath.Join(root, indexFilenamePrefix[index]+"db.index")
@@ -258,21 +258,22 @@ func NewWithIndex(root, index string, indexMapping mapping.IndexMapping, indexOp
 			}
 		}
 	}
-	if index == "badger" {
+	switch index {
+	case "badger":
 		if _, err := os.Stat(indexPath); os.IsNotExist(err) {
-			os.Mkdir(indexPath, os.FileMode(0755))
+			os.Mkdir(indexPath, os.FileMode(0700))
 			logger.Debug("made badger db index path", "path", indexPath)
 		}
 		ix = indexer.NewBadgerIndexerWithMapping(indexPath, indexMapping)
-	} else if index == "memory" {
+	case "memory":
 		ix, _ = indexer.NewMemIndexerWithMapping(indexPath, indexMapping)
-	} else if index == "moss-scorch" {
+	case "moss-scorch":
 		ix, _ = indexer.NewMossScorchIndexerWithMapping(indexPath, indexMapping)
-	} else if index == "moss" {
+	case "moss":
 		ix, _ = indexer.NewMossIndexer(indexPath)
-	} else if index == "geo-moss" {
+	case "geo-moss":
 		ix, _ = indexer.NewMossIndexerWithMapping(indexPath, indexMapping)
-	} else {
+	default:
 		ix = indexer.NewIndexer(indexPath, indexMapping)
 	}
 
