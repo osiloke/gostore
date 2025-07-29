@@ -1,89 +1,125 @@
 package common
 
 import (
-	"context"
+	"encoding/json"
+	"sync"
 	"time"
 )
 
+// NewCursorRows creates a new, deadlock-safe cursor.
 func NewCursorRows() *CursorRows {
-	return &CursorRows{ci: 0, getChan: make(chan bool, 1), nextChan: make(chan [][]byte), exitChan: make(chan bool, 1), doneChan: make(chan bool, 1)}
-}
-
-type CursorRows struct {
-	ci        int
-	lastError error
-	getChan   chan bool
-	nextChan  chan [][]byte
-	exitChan  chan bool
-	doneChan  chan bool
-}
-
-func (s *CursorRows) Done() chan bool {
-	return s.doneChan
-}
-func (s *CursorRows) NextChan() chan bool {
-	return s.getChan
-}
-func (s *CursorRows) Exit() chan bool {
-	return s.exitChan
-}
-func (s *CursorRows) OnNext(v [][]byte) {
-	s.nextChan <- v
-}
-
-// Next get next item
-func (s *CursorRows) Next(dst interface{}) (bool, error) {
-	return false, nil
-}
-
-// NextRaw get next raw item
-func (s *CursorRows) NextRaw() ([]byte, bool) {
-	return nil, false
-}
-
-// NextRaw get next raw item
-func (s *CursorRows) NextKV() ([][]byte, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
-	defer cancel()
-	s.getChan <- true
-	select {
-	case <-ctx.Done():
-		s.lastError = ctx.Err()
-		return nil, ErrTimeout
-	case row := <-s.nextChan:
-		if row == nil {
-			return nil, ErrEOF
-		}
-		s.ci++
-		return row, nil
+	return &CursorRows{
+		// nextChan is buffered to decouple producer/consumer slightly.
+		nextChan: make(chan [][]byte, 1),
+		// exitChan is a struct channel that will be closed to broadcast the exit signal.
+		exitChan: make(chan struct{}),
+		// doneChan is buffered to ensure the producer doesn't block when signaling it's finished.
+		doneChan: make(chan struct{}, 1),
 	}
 }
 
-// LastError get last error
+// CursorRows is an iterator designed for safe communication between a producer
+// and a consumer goroutine.
+type CursorRows struct {
+	mu        sync.Mutex
+	ci        int
+	lastError error
+
+	nextChan chan [][]byte
+	exitChan chan struct{}
+	doneChan chan struct{}
+}
+
+// OnNext should be called by the producer to send the next item.
+// It returns false if the consumer has called Close(), indicating the producer should stop.
+func (s *CursorRows) OnNext(v [][]byte) bool {
+	select {
+	case s.nextChan <- v:
+		// Data was successfully sent.
+		return true
+	case <-s.exitChan:
+		// The exit channel was closed, consumer wants to stop.
+		return false
+	}
+}
+
+// ProducerDone MUST be called by the producer goroutine, ideally via defer,
+// to signal that it has finished processing, either normally or by being aborted.
+func (s *CursorRows) ProducerDone() {
+	// Close nextChan to signal EOF to any consumer waiting in NextKV.
+	close(s.nextChan)
+	// Signal that cleanup is complete. This unblocks the Close() method.
+	s.doneChan <- struct{}{}
+}
+
+// NextKV gets the next key-value pair. It's called by the consumer.
+func (s *CursorRows) NextKV() ([][]byte, error) {
+	select {
+	case row, ok := <-s.nextChan:
+		if !ok {
+			// Channel is closed and empty, meaning end of iteration.
+			return nil, ErrEOF
+		}
+		s.mu.Lock()
+		s.ci++
+		s.mu.Unlock()
+		return row, nil
+	case <-time.After(5 * time.Second): // A simple timeout to prevent waiting forever on a stalled producer.
+		s.SetLastError(ErrTimeout)
+		return nil, ErrTimeout
+	}
+}
+
+// Close signals the producer to stop and waits for it to confirm shutdown.
+func (s *CursorRows) Close() {
+	// Signal the producer to exit by closing the exit channel.
+	// This is a non-blocking broadcast operation.
+	close(s.exitChan)
+	// Wait for the producer to call ProducerDone().
+	<-s.doneChan
+	// Drain any final item the producer might have sent before it saw the exit signal.
+	for range s.nextChan {
+	}
+}
+
+// SetLastError allows the producer to safely record an error that the consumer can retrieve.
+func (s *CursorRows) SetLastError(err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.lastError = err
+}
+
+// --- The following methods depend on NextKV and require no significant changes ---
+
+func (s *CursorRows) Next(dst interface{}) (bool, error) {
+	row, err := s.NextKV()
+	if err != nil {
+		return false, err // Correctly propagates ErrEOF
+	}
+	err = json.Unmarshal(row[1], dst)
+	if err != nil {
+		s.SetLastError(err) // Safely set the unmarshal error
+		return false, err
+	}
+	return true, nil
+}
+
+func (s *CursorRows) NextRaw() ([]byte, bool) {
+	row, err := s.NextKV()
+	if err != nil {
+		return nil, false
+	}
+	return row[1], true
+}
+
 func (s *CursorRows) LastError() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	return s.lastError
 }
 
-// Count returns count of entries
 func (s *CursorRows) Count() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	return s.ci
-}
-
-// Close closes row iterator
-func (s *CursorRows) Close() {
-	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
-	defer func() {
-		cancel()
-		close(s.getChan)
-		close(s.nextChan)
-		close(s.doneChan)
-		close(s.exitChan)
-	}()
-	s.exitChan <- true
-	select {
-	case <-ctx.Done():
-		s.lastError = ctx.Err()
-		return
-	case <-s.doneChan:
-	}
 }
