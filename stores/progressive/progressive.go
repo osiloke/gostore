@@ -779,6 +779,10 @@ func (s *ProgressiveMigrationStore) migratePartition(partitionID string, done ch
 		var entry map[string]interface{}
 		hasNext, err := rows.Next(&entry)
 		if err != nil {
+			if err == common.ErrEOF {
+				s.logger.Info("migration completed for partition", "partition", partitionID)
+				break
+			}
 			s.logger.Error("failed to get next row during migration", "error", err, "partition", partitionID)
 			return
 		}
@@ -839,6 +843,10 @@ func (s *ProgressiveMigrationStore) StartBackfill(ctx context.Context) {
 		var metadata PartitionMetadata
 		hasNext, err := rows.Next(&metadata)
 		if err != nil {
+			if err == common.ErrEOF {
+				s.logger.Info("no more partitions to backfill")
+				break
+			}
 			s.logger.Error("cursor error during backfill", "error", err)
 			return
 		}

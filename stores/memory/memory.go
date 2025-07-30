@@ -72,10 +72,13 @@ func (s *MemoryStore) All(count int, skip int, store string) (ObjectRows, error)
 	rows := make([]interface{}, 0)
 	i := 0
 	for _, v := range s.stores[store] {
-		if i >= skip && i < skip+count {
+		if i >= skip {
 			rows = append(rows, v)
 		}
 		i++
+	}
+	if len(rows) > count {
+		rows = rows[:count]
 	}
 
 	return &TransactionRows{
@@ -219,7 +222,7 @@ func (s *MemoryStore) Get(key string, store string, dst interface{}) error {
 		// You might need to handle different data types here.
 		return unmarshalData(v, dst)
 	}
-	return fmt.Errorf("document with key %s not found", key)
+	return common.ErrNotFound
 }
 
 // Save inserts a new document into the store.
@@ -261,16 +264,24 @@ func (s *MemoryStore) Update(key string, store string, src interface{}) error {
 	defer s.Unlock()
 
 	if _, ok := s.stores[store][key]; !ok {
-		return fmt.Errorf("document with key %s not found", key)
+		return common.ErrNotFound
 	}
 
-	// Serialize the data into a map[string]interface{}
-	data, err := marshalData(src)
+	updateData, err := marshalData(src)
 	if err != nil {
 		return err
 	}
 
-	s.stores[store][key] = data
+	if existingData, ok := s.stores[store][key].(map[string]interface{}); ok {
+		for k, v := range updateData {
+			if k != "id" {
+				existingData[k] = v
+			}
+		}
+		s.stores[store][key] = existingData
+	} else {
+		s.stores[store][key] = updateData
+	}
 	return nil
 }
 
@@ -461,6 +472,9 @@ func (s *MemoryStore) BatchUpdate(ids []interface{}, data []interface{}, store s
 		data, err := marshalData(data[i])
 		if err != nil {
 			return err
+		}
+		if _, ok := s.stores[store][key]; !ok {
+			return common.ErrNotFound
 		}
 		s.stores[store][key] = data
 	}

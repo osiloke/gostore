@@ -709,30 +709,57 @@ func (s *BadgerStore) AllWithinRange(filter map[string]interface{}, count int, s
 
 // Since get items after a key
 func (s *BadgerStore) Since(id string, count int, skip int, store string) (common.ObjectRows, error) {
-	var objs [][][]byte
-	err := s.Db.View(func(txn *badgerdb.Txn) error {
-		opts := badgerdb.DefaultIteratorOptions
-		opts.PrefetchSize = 10
-		it := txn.NewIterator(opts)
-		defer it.Close()
-		for it.Seek([]byte(s.keyForTableId(store, id))); it.Valid(); it.Next() {
-			item := it.Item()
-			k := item.Key()
-			obj := make([][]byte, 2)
-			err := item.Value(func(v []byte) error {
-				obj[1] = append([]byte{}, v...)
-				return nil
-			})
-			if err != nil {
-				return err
+	rows := common.NewCursorRows()
+	prefix := []byte(s.keyForTable(store))
+	startKey := []byte(s.keyForTableId(store, id))
+	go func(rows *common.CursorRows) {
+		defer rows.Close()
+		err := s.Db.View(func(txn *badgerdb.Txn) error {
+			opts := badgerdb.DefaultIteratorOptions
+			opts.PrefetchValues = false
+			it := txn.NewIterator(opts)
+			defer it.Close()
+
+			skipped := 0
+			sent := 0
+
+			for it.Seek(startKey); it.ValidForPrefix(prefix); it.Next() {
+				if skipped < skip {
+					skipped++
+					continue
+				}
+
+				item := it.Item()
+				v, err := item.ValueCopy(nil)
+				if err != nil {
+					return err
+				}
+
+				k := item.KeyCopy(nil)
+				keyParts := bytes.SplitN(k, []byte(s.KeyFormat.IdSeparator), 2)
+				if len(keyParts) < 2 {
+					continue
+				}
+				entryID := keyParts[1]
+
+				if !rows.OnNext([][]byte{entryID, v}) {
+					return nil // Consumer closed the cursor
+				}
+
+				sent++
+				if count > 0 && sent >= count {
+					break
+				}
 			}
-			objs = append(objs, obj)
-			obj[0] = make([]byte, len(k))
-			copy(obj[0], k)
+			return nil
+		})
+
+		if err != nil {
+			logger.Error("cursor rows for "+store+" failed", "err", err.Error())
+			rows.SetLastError(err)
 		}
-		return nil
-	})
-	return &TransactionRows{entries: objs, length: len(objs)}, err
+	}(rows)
+	return rows, nil
 }
 
 // Before Get all recent items from a key
