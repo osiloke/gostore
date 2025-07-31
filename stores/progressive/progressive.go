@@ -2,6 +2,7 @@ package progressive
 
 import (
 	"context"
+	"errors"
 	"sync"
 
 	"github.com/osiloke/gostore/common"
@@ -883,4 +884,123 @@ type migrationJob struct {
 // Execute executes the migration job.
 func (j *migrationJob) Execute() {
 	j.store.migratePartition(j.partitionID, j.done, j.migrationStarted, j.resumeMigration)
+}
+
+// GetTX retrieves an object from the store within a transaction.
+func (s *ProgressiveMigrationStore) GetTX(key string, store string, dst interface{}, txn common.Transaction) error {
+	// For simplicity, we'll always read from the primary store for GetTX.
+	primaryTxStore, ok := s.primary.(common.TransactionStore)
+	if !ok {
+		return errors.New("primary store does not support transactions")
+	}
+	return primaryTxStore.GetTX(key, store, dst, txn)
+}
+
+// SaveTX saves an object to the store within a transaction. It implements the dual-write strategy.
+func (s *ProgressiveMigrationStore) SaveTX(key string, store string, src interface{}, txn common.Transaction) error {
+	primaryTxStore, ok := s.primary.(common.TransactionStore)
+	if !ok {
+		return errors.New("primary store does not support transactions")
+	}
+	secondaryTxStore, ok := s.secondary.(common.TransactionStore)
+	if !ok {
+		return errors.New("secondary store does not support transactions")
+	}
+	// Write to primary store first, as it is the source of truth.
+	err := primaryTxStore.SaveTX(key, store, src, txn)
+	if err != nil {
+		return err
+	}
+
+	// Then, write to the secondary store.
+	if err := secondaryTxStore.SaveTX(key, store, src, txn); err != nil {
+		// Log the error, but don't fail the operation.
+		// A background process can handle reconciliation.
+		s.logger.Error("failed to write to secondary store during SaveTX", "error", err, "key", key, "store", store)
+	}
+
+	return nil
+}
+
+// DeleteTX deletes an object from the store within a transaction. It implements the dual-write strategy.
+func (s *ProgressiveMigrationStore) DeleteTX(key string, store string, tx common.Transaction) error {
+	primaryTxStore, ok := s.primary.(common.TransactionStore)
+	if !ok {
+		return errors.New("primary store does not support transactions")
+	}
+	secondaryTxStore, ok := s.secondary.(common.TransactionStore)
+	if !ok {
+		return errors.New("secondary store does not support transactions")
+	}
+	// Write to primary store first, as it is the source of truth.
+	err := primaryTxStore.DeleteTX(key, store, tx)
+	if err != nil {
+		return err
+	}
+
+	// Then, write to the secondary store.
+	if err := secondaryTxStore.DeleteTX(key, store, tx); err != nil {
+		// Log the error, but don't fail the operation.
+		// A background process can handle reconciliation.
+		s.logger.Error("failed to write to secondary store during DeleteTX", "error", err, "key", key, "store", store)
+	}
+
+	return nil
+}
+
+// FilterGetTX retrieves an object from the store within a transaction based on a filter.
+func (s *ProgressiveMigrationStore) FilterGetTX(filter map[string]interface{}, store string, dst interface{}, opts common.ObjectStoreOptions, tx common.Transaction) error {
+	// For simplicity, we'll always read from the primary store for FilterGetTX.
+	primaryTxStore, ok := s.primary.(common.TransactionStore)
+	if !ok {
+		return errors.New("primary store does not support transactions")
+	}
+	return primaryTxStore.FilterGetTX(filter, store, dst, opts, tx)
+}
+
+// BatchInsertTX inserts multiple objects into the store. It implements the dual-write strategy.
+// The primary store is updated first, and then the secondary store. If the
+// insert into the secondary store fails, the error is logged, but the operation
+// is still considered successful.
+func (s *ProgressiveMigrationStore) BatchInsertTX(data []interface{}, store string, opts common.ObjectStoreOptions, tx common.Transaction) (keys []string, err error) {
+	primaryTxStore, ok := s.primary.(common.TransactionStore)
+	if !ok {
+		return nil, errors.New("primary store does not support transactions")
+	}
+	secondaryTxStore, ok := s.secondary.(common.TransactionStore)
+	if !ok {
+		return nil, errors.New("secondary store does not support transactions")
+	}
+	// Write to primary store first, as it is the source of truth.
+	keys, err = primaryTxStore.BatchInsertTX(data, store, opts, tx)
+	if err != nil {
+		return nil, err
+	}
+
+	// Then, write to the secondary store.
+	if _, err := secondaryTxStore.BatchInsertTX(data, store, opts, tx); err != nil {
+		// Log the error, but don't fail the operation.
+		// A background process can handle reconciliation.
+		s.logger.Error("failed to write to secondary store during BatchInsertTX", "error", err, "store", store)
+	}
+
+	return keys, nil
+}
+
+// UpdateTransaction starts an update transaction
+func (s *ProgressiveMigrationStore) UpdateTransaction() common.Transaction {
+	primaryTxStore, ok := s.primary.(common.TransactionStore)
+	if !ok {
+		return nil
+	}
+	return primaryTxStore.UpdateTransaction()
+}
+
+// FinishTransaction ebds transaction
+func (s *ProgressiveMigrationStore) FinishTransaction(tx common.Transaction) error {
+	primaryTxStore, ok := s.primary.(common.TransactionStore)
+	if !ok {
+		return errors.New("primary store does not support transactions")
+	}
+	return primaryTxStore.FinishTransaction(tx)
 }
