@@ -354,7 +354,7 @@ func (s *BadgerStore) GetStore() interface{} {
 
 // UpdateTransaction starts an update transaction
 func (s *BadgerStore) UpdateTransaction() common.Transaction {
-	txn := BadgerTransaction{s.Db, nil, "update"}
+	txn := BadgerTransaction{db: s.Db, txn: nil, mode: "update"}
 	txn.Restart()
 	return &txn
 }

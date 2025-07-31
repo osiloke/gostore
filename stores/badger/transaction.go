@@ -2,31 +2,41 @@ package badger
 
 import (
 	"errors"
+	"time"
 
 	badgerdb "github.com/dgraph-io/badger/v4"
 )
 
 type BadgerTransaction struct {
-	db   *badgerdb.DB
-	txn  *badgerdb.Txn
-	mode string
+	db            *badgerdb.DB
+	txn           *badgerdb.Txn
+	mode          string
+	createdTime   time.Time
+	commitedTime  time.Time
+	discardedTime time.Time
 }
 
 func (t *BadgerTransaction) Restart() error {
 	switch t.mode {
 	case "update":
 		t.txn = t.db.NewTransaction(true)
+		t.createdTime = time.Now()
 	default:
 		return errors.New("unknown transaction mode")
 	}
 	return nil
 }
 func (t *BadgerTransaction) Commit() error {
-	return t.txn.Commit()
+	if err := t.txn.Commit(); err != nil {
+		return err
+	}
+	t.commitedTime = time.Now()
+	return nil
 }
 
 func (t *BadgerTransaction) Discard() {
 	t.txn.Discard()
+	t.discardedTime = time.Now()
 }
 
 func (t *BadgerTransaction) Set(key []byte, data []byte) error {
