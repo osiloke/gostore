@@ -6,6 +6,9 @@ all: clean build image
 build:
 	go build -ldflags="-X main.VERSION=$(VERSION) -X main.BUILD=$(shell git describe --always --long --dirty)" -o $(NAME)-v$(shell echo $(VERSION) | awk -F. '{print $$1}') ./cli
 
+build-linux:
+	GOOS=linux GOARCH=amd64 go build -ldflags="-X main.VERSION=$(VERSION) -X main.BUILD=$(shell git describe --always --long --dirty)" -o $(NAME)-linux ./cli
+
 install:
 	go build -ldflags="-X main.VERSION=$(VERSION) -X main.BUILD=$(shell git describe --always --long --dirty)" -o $(NAME)-v$(shell echo $(VERSION) | awk -F. '{print $$1}') ./cli
 	install $(NAME)-v$(shell echo $(VERSION) | awk -F. '{print $$1}') /usr/local/bin/$(NAME)-v$(shell echo $(VERSION) | awk -F. '{print $$1}')
