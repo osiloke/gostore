@@ -103,6 +103,11 @@ func (s *BadgerStore) setupTicker() {
 	logger.Debug("setup ticker")
 }
 func NewDBOnly(dbPath string, opts ...StoreOpt) (s *BadgerStore, err error) {
+	// Check if database is locked
+	if _, err := os.Stat(filepath.Join(dbPath, "LOCK")); err == nil {
+		return nil, common.ErrDatabaseLocked
+	}
+
 	opt := BadgerDefaultOptions(dbPath)
 	db, err := badgerdb.Open(opt)
 	if err != nil {
@@ -135,6 +140,11 @@ func New(root string, opts ...StoreOpt) (s *BadgerStore, err error) {
 
 		os.Mkdir(dbPath, os.FileMode(0700))
 		logger.Debug("made badger db", "path", dbPath)
+	}
+
+	// Check if database is locked
+	if _, err := os.Stat(filepath.Join(dbPath, "LOCK")); err == nil {
+		return nil, common.ErrDatabaseLocked
 	}
 
 	opt := BadgerDefaultOptions(dbPath)
@@ -214,6 +224,11 @@ func NewWithIndexer(root string, index indexer.Indexer, opts ...StoreOpt) (s *Ba
 	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
 		os.Mkdir(dbPath, os.FileMode(0700))
 		logger.Debug("created badger directory " + dbPath)
+	}
+
+	// Check if database is locked
+	if _, err := os.Stat(filepath.Join(dbPath, "LOCK")); err == nil {
+		return nil, common.ErrDatabaseLocked
 	}
 
 	opt := BadgerDefaultOptions(dbPath)
