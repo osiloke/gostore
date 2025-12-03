@@ -102,6 +102,12 @@ var dbCmd = &cobra.Command{
 		switch action {
 		case "keys":
 			if d, ok := db.(*badger.BadgerStore); ok {
+				file, err := os.Create("keys.txt")
+				if err != nil {
+					fmt.Println("Error creating file, printing to stdout", err)
+				} else {
+					defer file.Close()
+				}
 				err = d.Db.View(func(txn *badgerdb.Txn) error {
 					opts := badgerdb.DefaultIteratorOptions
 					opts.PrefetchSize = 10
@@ -112,7 +118,14 @@ var dbCmd = &cobra.Command{
 						item := it.Item()
 						k := item.Key()
 						key := string(k)
-						fmt.Println(key)
+						if file != nil {
+							_, err = file.WriteString(key + "\n")
+							if err != nil {
+								fmt.Println("Error writing to file ", err)
+							}
+						} else {
+							fmt.Println(key)
+						}
 					}
 					return nil
 				})
