@@ -10,10 +10,35 @@ REMOTE_NAME="origin"
 
 # --- Script Logic ---
 
+# --- Script Logic ---
+
+# Function to display help message
+help_message() {
+    echo "Usage: $0 <module-path> [OPTIONS]"
+    echo ""
+    echo "This script creates and pushes a version tag for a single Go module."
+    echo ""
+    echo "Arguments:"
+    echo "  <module-path>    The path to the Go module (e.g., ./pool, ./cli)"
+    echo ""
+    echo "Options:"
+    echo "  -h, --help       Display this help message"
+    echo ""
+    echo "Examples:"
+    echo "  $0 ./pool"
+    echo "  $0 ./cli"
+    exit 0
+}
+
+# Check for help command
+if [[ "$1" == "-h" || "$1" == "--help" ]]; then
+    help_message
+fi
+
 # Check if a module path is provided
 if [ -z "$1" ]; then
-    echo "Usage: $0 <module-path>"
-    echo "Example: $0 ./pool"
+    echo "Error: Missing <module-path> argument."
+    echo "Use '$0 --help' for more information."
     exit 1
 fi
 
