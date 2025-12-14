@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	badgerdb "github.com/dgraph-io/badger/v4"
+	"github.com/dgraph-io/badger/v4/options"
 	common "github.com/osiloke/gostore/common"
 )
 
@@ -40,6 +41,18 @@ func BadgerDefaultOptions(path string) badgerdb.Options {
 	opt.Logger = defaultLogger()
 	// opt.SyncWrites = true
 	// opt.MaxLevels = 3
+	return opt
+}
+
+func BadgerRestoreOptions(path string) badgerdb.Options {
+	opt := badgerdb.DefaultOptions(path)
+	opt.Compression = options.None
+	opt.BlockCacheSize = 0
+	opt.IndexCacheSize = 0
+	opt.NumMemtables = 1
+	opt.NumLevelZeroTables = 1
+	opt.NumLevelZeroTablesStall = 2
+	opt.Logger = defaultLogger()
 	return opt
 }
 func valForPath(key string, s interface{}) (v interface{}, err error) {

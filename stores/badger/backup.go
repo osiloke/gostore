@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"os"
 	"time"
+
+	badgerdb "github.com/dgraph-io/badger/v4"
 )
 
 // WriteToHTTP writes store to http writer
@@ -24,11 +26,35 @@ func (s *BadgerStore) WriteToHTTP(w http.ResponseWriter) error {
 }
 
 func (s *BadgerStore) Restore(filename string) error {
+	// Close existing store
+	if s.Db != nil {
+		if err := s.Db.Close(); err != nil {
+			return err
+		}
+	}
 	// Open File
 	f, err := os.Open(filename)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
-	return s.Db.Load(f, 1)
+	// Open New Store with Restore Options
+	opt := BadgerRestoreOptions(s.Path)
+	db, err := badgerdb.Open(opt)
+	if err != nil {
+		return err
+	}
+	// Load data
+	if err := db.Load(f, 16); err != nil {
+		db.Close()
+		return err
+	}
+	// Close Restore Store
+	if err := db.Close(); err != nil {
+		return err
+	}
+	// Reopen Default Store
+	defaultOpt := BadgerDefaultOptions(s.Path)
+	s.Db, err = badgerdb.Open(defaultOpt)
+	return err
 }

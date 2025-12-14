@@ -54,6 +54,7 @@ func WithKeyFormat(kf KeyFormat) StoreOpt {
 type BadgerStore struct {
 	Bucket      []byte
 	Db          *badgerdb.DB
+	Path        string
 	Indexer     indexer.Indexer
 	tableConfig map[string]*TableConfig
 	t           *time.Ticker
@@ -117,6 +118,7 @@ func NewDBOnly(dbPath string, opts ...StoreOpt) (s *BadgerStore, err error) {
 	s = &BadgerStore{
 		Bucket:      []byte("_default"),
 		Db:          db,
+		Path:        dbPath,
 		Indexer:     nil,
 		tableConfig: make(map[string]*TableConfig),
 		KeyFormat: KeyFormat{
@@ -161,6 +163,7 @@ func New(root string, opts ...StoreOpt) (s *BadgerStore, err error) {
 	s = &BadgerStore{
 		Bucket:      []byte("_default"),
 		Db:          db,
+		Path:        dbPath,
 		Indexer:     index,
 		tableConfig: make(map[string]*TableConfig),
 		KeyFormat: KeyFormat{
@@ -240,6 +243,7 @@ func NewWithIndexer(root string, index indexer.Indexer, opts ...StoreOpt) (s *Ba
 	s = &BadgerStore{
 		Bucket:      []byte("_default"),
 		Db:          db,
+		Path:        dbPath,
 		Indexer:     index,
 		tableConfig: make(map[string]*TableConfig),
 		KeyFormat: KeyFormat{
