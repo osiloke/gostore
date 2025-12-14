@@ -58,6 +58,7 @@ type BadgerStore struct {
 	Indexer     indexer.Indexer
 	tableConfig map[string]*TableConfig
 	t           *time.Ticker
+	quit        chan struct{}
 	done        chan bool
 	KeyFormat   KeyFormat
 }
@@ -92,16 +93,32 @@ func runValueLogGC(db *badgerdb.DB) {
 
 func (s *BadgerStore) setupTicker() {
 	done := make(chan bool)
+	quit := make(chan struct{})
 	ticker := time.NewTicker(5 * time.Minute)
 	s.done = done
+	s.quit = quit
 	s.t = ticker
 	go func() {
-		for range ticker.C {
-			runValueLogGC(s.Db)
+		for {
+			select {
+			case <-ticker.C:
+				runValueLogGC(s.Db)
+			case <-quit:
+				ticker.Stop()
+				done <- true
+				return
+			}
 		}
-		done <- true
 	}()
 	logger.Debug("setup ticker")
+}
+
+func (s *BadgerStore) stopTicker() {
+	if s.quit != nil {
+		close(s.quit)
+		<-s.done
+		s.quit = nil
+	}
 }
 func NewDBOnly(dbPath string, opts ...StoreOpt) (s *BadgerStore, err error) {
 	// Check if database is locked
@@ -1493,7 +1510,7 @@ func (s *BadgerStore) BatchInsertKV(rows [][][]byte, store string, opts common.O
 	return
 }
 func (s *BadgerStore) Close() {
-	defer s.t.Stop()
+	s.stopTicker()
 	if s.Db != nil {
 		s.Db.Close()
 		logger.Debug("closed badger store")

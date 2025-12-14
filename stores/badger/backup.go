@@ -26,8 +26,14 @@ func (s *BadgerStore) WriteToHTTP(w http.ResponseWriter) error {
 }
 
 func (s *BadgerStore) Restore(filename string) error {
+	logger.Info("Starting restore process")
+	// Stop Ticker
+	s.stopTicker()
+	logger.Info("Stopped ticker")
+
 	// Close existing store
 	if s.Db != nil {
+		logger.Info("Closing existing badger store")
 		if err := s.Db.Close(); err != nil {
 			return err
 		}
@@ -38,23 +44,38 @@ func (s *BadgerStore) Restore(filename string) error {
 		return err
 	}
 	defer f.Close()
+
 	// Open New Store with Restore Options
+	logger.Info("Opening badger store with restore options")
 	opt := BadgerRestoreOptions(s.Path)
 	db, err := badgerdb.Open(opt)
 	if err != nil {
 		return err
 	}
+
 	// Load data
+	logger.Info("Loading data from backup file")
 	if err := db.Load(f, 16); err != nil {
 		db.Close()
 		return err
 	}
+
 	// Close Restore Store
+	logger.Info("Closing restore store")
 	if err := db.Close(); err != nil {
 		return err
 	}
+
 	// Reopen Default Store
+	logger.Info("Reopening badger store with default options")
 	defaultOpt := BadgerDefaultOptions(s.Path)
 	s.Db, err = badgerdb.Open(defaultOpt)
-	return err
+	if err != nil {
+		return err
+	}
+
+	// Restart Ticker
+	s.setupTicker()
+	logger.Info("Restarted ticker")
+	return nil
 }
