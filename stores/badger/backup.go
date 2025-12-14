@@ -30,5 +30,5 @@ func (s *BadgerStore) Restore(filename string) error {
 		return err
 	}
 	defer f.Close()
-	return s.Db.Load(f, 16)
+	return s.Db.Load(f, 1)
 }
