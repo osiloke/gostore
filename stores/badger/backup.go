@@ -38,6 +38,12 @@ func (s *BadgerStore) Restore(filename string) error {
 			return err
 		}
 	}
+	// Close Indexer
+	if s.Indexer != nil {
+		logger.Info("Closing indexer")
+		s.Indexer.Close()
+	}
+
 	// Open File
 	f, err := os.Open(filename)
 	if err != nil {
@@ -77,5 +83,13 @@ func (s *BadgerStore) Restore(filename string) error {
 	// Restart Ticker
 	s.setupTicker()
 	logger.Info("Restarted ticker")
+
+	// Reopen Indexer
+	if s.IndexPath != "" {
+		logger.Info("Reopening indexer")
+		if err := s.ReopenIndex(); err != nil {
+			return err
+		}
+	}
 	return nil
 }

@@ -52,15 +52,18 @@ func WithKeyFormat(kf KeyFormat) StoreOpt {
 
 // BadgerStore gostore implementation that used badgerdb
 type BadgerStore struct {
-	Bucket      []byte
-	Db          *badgerdb.DB
-	Path        string
-	Indexer     indexer.Indexer
-	tableConfig map[string]*TableConfig
-	t           *time.Ticker
-	quit        chan struct{}
-	done        chan bool
-	KeyFormat   KeyFormat
+	Bucket       []byte
+	Db           *badgerdb.DB
+	Path         string
+	Indexer      indexer.Indexer
+	IndexType    string
+	IndexPath    string
+	IndexMapping mapping.IndexMapping
+	tableConfig  map[string]*TableConfig
+	t            *time.Ticker
+	quit         chan struct{}
+	done         chan bool
+	KeyFormat    KeyFormat
 }
 
 // IndexedData represents a stored row
@@ -178,11 +181,14 @@ func New(root string, opts ...StoreOpt) (s *BadgerStore, err error) {
 	indexMapping.StoreDynamic = false
 	index := indexer.NewIndexer(indexPath, indexMapping)
 	s = &BadgerStore{
-		Bucket:      []byte("_default"),
-		Db:          db,
-		Path:        dbPath,
-		Indexer:     index,
-		tableConfig: make(map[string]*TableConfig),
+		Bucket:       []byte("_default"),
+		Db:           db,
+		Path:         dbPath,
+		Indexer:      index,
+		IndexPath:    indexPath,
+		IndexMapping: indexMapping,
+		IndexType:    "bleve",
+		tableConfig:  make(map[string]*TableConfig),
 		KeyFormat: KeyFormat{
 			TablePrefix: "t$",
 			IdSeparator: "|",
@@ -356,7 +362,45 @@ func NewWithIndex(root, index string, indexMapping mapping.IndexMapping, indexOp
 		}
 		err = ioutil.WriteFile(indexInitPath, []byte(index+"|"+time.Now().UTC().String()), os.ModePerm)
 	}
+	s.IndexType = index
+	s.IndexPath = indexPath
+	s.IndexMapping = indexMapping
 	return
+}
+
+func (s *BadgerStore) ReopenIndex() error {
+	if s.IndexPath == "" {
+		return nil
+	}
+	var ix indexer.Indexer
+	// Clean up existing index directory
+	os.RemoveAll(s.IndexPath)
+	os.MkdirAll(s.IndexPath, 0700)
+
+	switch s.IndexType {
+	case "badger":
+		ix = indexer.NewBadgerIndexerWithMapping(s.IndexPath, s.IndexMapping)
+	case "memory":
+		ix, _ = indexer.NewMemIndexerWithMapping(s.IndexPath, s.IndexMapping)
+	case "moss-scorch":
+		ix, _ = indexer.NewMossScorchIndexerWithMapping(s.IndexPath, s.IndexMapping)
+	case "moss":
+		ix, _ = indexer.NewMossIndexer(s.IndexPath)
+	case "geo-moss":
+		ix, _ = indexer.NewMossIndexerWithMapping(s.IndexPath, s.IndexMapping)
+	default:
+		ix = indexer.NewIndexer(s.IndexPath, s.IndexMapping)
+	}
+	// Re-wrap in GeoIndexer if needed (NewWithIndex does this unconditionally?)
+	// NewWithIndex does: geoIndex := &indexer.GeoIndexer{Field: "_location", Indexer: ix}
+	// But NewWithIndex assumes it returns a store with GeoIndexer.
+	// s.Indexer is interface.
+	// If I just set s.Indexer = ix, I lose GeoIndexer wrapper if it was there?
+	// NewWithIndex wraps it.
+	// So I should wrap it.
+	geoIndex := &indexer.GeoIndexer{Field: "_location", Indexer: ix}
+	s.Indexer = geoIndex
+	return nil
 }
 
 func (s *BadgerStore) CreateDatabase() error {
