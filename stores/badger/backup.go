@@ -55,7 +55,7 @@ func (s *BadgerStore) Restore(filename string) error {
 
 	// Load data
 	logger.Info("Loading data from backup file")
-	if err := db.Load(f, 16); err != nil {
+	if err := db.Load(f, 256); err != nil {
 		db.Close()
 		return err
 	}
