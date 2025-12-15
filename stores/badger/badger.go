@@ -155,8 +155,20 @@ func NewDBOnly(dbPath string, opts ...StoreOpt) (s *BadgerStore, err error) {
 
 // NewRestorable creates a new BadgerStore specifically for restoration purposes.
 // It opens the database with restore-specific options and does not initialize an indexer.
-func NewRestorable(dbPath string, opts ...StoreOpt) (s *BadgerStore, err error) {
+func NewRestorable(root string, opts ...StoreOpt) (s *BadgerStore, err error) {
 	// Use restore options for opening the database
+	dbPath := filepath.Join(root, "db")
+	logger.Debug("New badgerdb", "path", dbPath)
+	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
+
+		os.Mkdir(dbPath, os.FileMode(0700))
+		logger.Debug("made badger db", "path", dbPath)
+	}
+
+	// Check if database is locked
+	if _, err := os.Stat(filepath.Join(dbPath, "LOCK")); err == nil {
+		return nil, common.ErrDatabaseLocked
+	}
 	opt := BadgerRestoreOptions(dbPath)
 	db, err := badgerdb.Open(opt)
 	if err != nil {
