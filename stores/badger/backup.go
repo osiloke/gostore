@@ -57,7 +57,7 @@ func (s *BadgerStore) Restore(filename string) error {
 
 	logger.Info("Loading data from backup file into existing store")
 	mr := &MemoryReader{Reader: f, interval: 50 * 1024 * 1024} // Log every 50MB
-	if err := s.Db.Load(mr, 100); err != nil {
+	if err := s.Db.Load(mr, 1); err != nil {
 		return err
 	}
 
