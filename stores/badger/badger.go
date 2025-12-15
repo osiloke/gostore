@@ -354,6 +354,9 @@ func NewWithIndex(root, index string, indexMapping mapping.IndexMapping, indexOp
 		opt(geoIndex)
 	}
 	s, err = NewWithIndexer(root, geoIndex, storeOpts...)
+	if err != nil {
+		return nil, err
+	}
 	if reIndex {
 		ixj, _ := json.Marshal(ix.Index().Mapping())
 		logger.Debug("reindex db", "mapping", string(ixj))
