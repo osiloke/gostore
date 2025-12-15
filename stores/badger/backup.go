@@ -7,8 +7,6 @@ import (
 	"os"
 	"runtime"
 	"time"
-
-	badgerdb "github.com/dgraph-io/badger/v4"
 )
 
 // MemoryReader wraps an io.Reader and logs memory stats periodically
@@ -51,82 +49,18 @@ func (s *BadgerStore) WriteToHTTP(w http.ResponseWriter) error {
 
 func (s *BadgerStore) Restore(filename string) error {
 	logger.Info("Starting restore process")
-	// Stop Ticker
-	s.stopTicker()
-	logger.Info("Stopped ticker")
-
-	// Close existing store
-	if s.Db != nil {
-		logger.Info("Closing existing badger store")
-		if err := s.Db.Close(); err != nil {
-			return err
-		}
-	}
-	// Close Indexer
-	if s.Indexer != nil {
-		logger.Info("Closing indexer")
-		s.Indexer.Close()
-	}
-
-	// Open File
 	f, err := os.Open(filename)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
 
-	// Open New Store with Restore Options
-	logger.Info("Opening badger store with restore options")
-	opt := BadgerRestoreOptions(s.Path)
-	db, err := badgerdb.Open(opt)
-	if err != nil {
-		return err
-	}
-
-	// Handle panic during load
-	defer func() {
-		if r := recover(); r != nil {
-			logger.Error("Panic during restore", "panic", r)
-			if db != nil {
-				db.Close()
-			}
-			// Re-panic after cleanup
-			panic(r)
-		}
-	}()
-
-	// Load data
-	logger.Info("Loading data from backup file")
+	logger.Info("Loading data from backup file into existing store")
 	mr := &MemoryReader{Reader: f, interval: 50 * 1024 * 1024} // Log every 50MB
-	if err := db.Load(mr, 1); err != nil {
-		db.Close()
+	if err := s.Db.Load(mr, 100); err != nil {
 		return err
 	}
 
-	// Close Restore Store
-	logger.Info("Closing restore store")
-	if err := db.Close(); err != nil {
-		return err
-	}
-
-	// Reopen Default Store
-	logger.Info("Reopening badger store with default options")
-	defaultOpt := BadgerDefaultOptions(s.Path)
-	s.Db, err = badgerdb.Open(defaultOpt)
-	if err != nil {
-		return err
-	}
-
-	// Restart Ticker
-	s.setupTicker()
-	logger.Info("Restarted ticker")
-
-	// Reopen Indexer
-	if s.IndexPath != "" {
-		logger.Info("Reopening indexer")
-		if err := s.ReopenIndex(); err != nil {
-			return err
-		}
-	}
+	logger.Info("Restore successful")
 	return nil
 }
