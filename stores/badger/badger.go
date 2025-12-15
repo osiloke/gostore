@@ -153,6 +153,34 @@ func NewDBOnly(dbPath string, opts ...StoreOpt) (s *BadgerStore, err error) {
 	return
 }
 
+// NewRestorable creates a new BadgerStore specifically for restoration purposes.
+// It opens the database with restore-specific options and does not initialize an indexer.
+func NewRestorable(dbPath string, opts ...StoreOpt) (s *BadgerStore, err error) {
+	// Use restore options for opening the database
+	opt := BadgerRestoreOptions(dbPath)
+	db, err := badgerdb.Open(opt)
+	if err != nil {
+		logger.Error("unable to create badgerdb for restore", "err", err.Error(), "opt", opt)
+		return
+	}
+	s = &BadgerStore{
+		Bucket:      []byte("_default"),
+		Db:          db,
+		Path:        dbPath,
+		Indexer:     nil, // Explicitly no indexer for restore
+		tableConfig: make(map[string]*TableConfig),
+		KeyFormat: KeyFormat{
+			TablePrefix: "t$",
+			IdSeparator: "|",
+		},
+	}
+	for _, opt := range opts {
+		opt(s)
+	}
+	// No ticker setup during restore
+	return
+}
+
 // New badger store
 func New(root string, opts ...StoreOpt) (s *BadgerStore, err error) {
 	dbPath := filepath.Join(root, "db")
