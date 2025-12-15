@@ -2,12 +2,36 @@ package badger
 
 import (
 	"fmt"
+	"io"
 	"net/http"
 	"os"
+	"runtime"
 	"time"
 
 	badgerdb "github.com/dgraph-io/badger/v4"
 )
+
+// MemoryReader wraps an io.Reader and logs memory stats periodically
+type MemoryReader struct {
+	io.Reader
+	totalRead int64
+	lastLog   int64
+	interval  int64
+}
+
+func (mr *MemoryReader) Read(p []byte) (n int, err error) {
+	n, err = mr.Reader.Read(p)
+	mr.totalRead += int64(n)
+	if mr.totalRead-mr.lastLog > mr.interval {
+		var m runtime.MemStats
+		runtime.ReadMemStats(&m)
+		alloc := m.Alloc / 1024 / 1024
+		sys := m.Sys / 1024 / 1024
+		logger.Info(fmt.Sprintf("Restore Progress: Read=%vMB Memory: Alloc=%vMB Sys=%vMB", mr.totalRead/1024/1024, alloc, sys))
+		mr.lastLog = mr.totalRead
+	}
+	return n, err
+}
 
 // WriteToHTTP writes store to http writer
 func (s *BadgerStore) WriteToHTTP(w http.ResponseWriter) error {
@@ -59,9 +83,22 @@ func (s *BadgerStore) Restore(filename string) error {
 		return err
 	}
 
+	// Handle panic during load
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Error("Panic during restore", "panic", r)
+			if db != nil {
+				db.Close()
+			}
+			// Re-panic after cleanup
+			panic(r)
+		}
+	}()
+
 	// Load data
 	logger.Info("Loading data from backup file")
-	if err := db.Load(f, 1); err != nil {
+	mr := &MemoryReader{Reader: f, interval: 50 * 1024 * 1024} // Log every 50MB
+	if err := db.Load(mr, 1); err != nil {
 		db.Close()
 		return err
 	}
