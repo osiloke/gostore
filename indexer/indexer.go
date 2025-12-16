@@ -11,14 +11,17 @@ import (
 
 	"github.com/blevesearch/bleve/v2"
 	"github.com/blevesearch/bleve/v2/mapping"
+	"github.com/schollz/progressbar/v3"
 	// "github.com/blevesearch/blevex/regexp"
 )
 
 func ReIndex(provider ProviderStore, index Indexer) error {
 	iter, _ := provider.Cursor()
+	bar := progressbar.Default(-1, "reindexing")
 	for iter.Valid() {
 		key := iter.Key()
 		val := iter.Value()
+		bar.Add(1)
 		var v map[string]interface{}
 		if err := json.Unmarshal(val, &v); err == nil {
 			k := string(key)
