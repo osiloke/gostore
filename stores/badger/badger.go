@@ -331,11 +331,11 @@ var indexFilenamePrefix = map[string]string{
 // NewWithIndex New badger store with indexer
 func NewWithIndex(root, index string, indexMapping mapping.IndexMapping, indexOpts []indexer.IndexOptions, storeOpts ...StoreOpt) (s *BadgerStore, err error) {
 
-	dbPath := filepath.Join(root, "db")
 	if _, err = os.Stat(root); os.IsNotExist(err) {
 		os.Mkdir(root, os.FileMode(0700))
 		logger.Debug("created root path " + root)
 	}
+	dbPath := filepath.Join(root, "db")
 	// Check if database is locked
 	if _, err = os.Stat(filepath.Join(dbPath, "LOCK")); err == nil {
 		return nil, common.ErrDatabaseLocked
@@ -400,14 +400,14 @@ func NewWithIndex(root, index string, indexMapping mapping.IndexMapping, indexOp
 	for _, opt := range indexOpts {
 		opt(geoIndex)
 	}
-	s, err = NewWithIndexer(indexInitFilePath, geoIndex, storeOpts...)
+	s, err = NewWithIndexer(root, geoIndex, storeOpts...)
 	if err != nil {
 		return
 	}
 	if reIndex {
 		ixj, _ := json.Marshal(ix.Index().Mapping())
 		logger.Debug("reindex db", "mapping", string(ixj))
-		if err = indexer.ReIndex(index, root, s, ix); err != nil {
+		if err = indexer.ReIndex(index, indexInitFilePath, s, ix); err != nil {
 			return
 		}
 	}
