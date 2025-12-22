@@ -10,6 +10,7 @@ require (
 	github.com/dgraph-io/badger v1.6.2
 	github.com/mgutz/logxi v0.0.0-20161027140823-aebf8a7d67ab
 	github.com/osiloke/gostore/common v0.0.0-00010101000000-000000000000
+	github.com/schollz/progressbar/v3 v3.18.0
 	github.com/smartystreets/goconvey v1.8.1
 	github.com/stretchr/testify v1.10.0
 )
@@ -62,7 +63,6 @@ require (
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/rogpeppe/go-internal v1.10.0 // indirect
 	github.com/rs/zerolog v1.34.0 // indirect
-	github.com/schollz/progressbar/v3 v3.18.0 // indirect
 	github.com/smarty/assertions v1.15.0 // indirect
 	go.etcd.io/bbolt v1.3.9 // indirect
 	golang.org/x/net v0.31.0 // indirect

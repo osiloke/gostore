@@ -3,6 +3,8 @@ package indexer
 import (
 	"errors"
 	"fmt"
+	"os"
+	"time"
 
 	log "github.com/mgutz/logxi/v1"
 
@@ -15,9 +17,10 @@ import (
 	// "github.com/blevesearch/blevex/regexp"
 )
 
-func ReIndex(provider ProviderStore, index Indexer) error {
+func ReIndex(path string, provider ProviderStore, index Indexer) error {
 	iter, _ := provider.Cursor()
 	bar := progressbar.Default(-1, "reindexing")
+	defer bar.Finish()
 	for iter.Valid() {
 		key := iter.Key()
 		val := iter.Value()
@@ -28,7 +31,6 @@ func ReIndex(provider ProviderStore, index Indexer) error {
 			u := strings.SplitN(k, "|", 2)
 			ID := u[1]
 			store := strings.TrimPrefix(u[0], "t$")
-			// logger.Debug("reindexing", "ID", ID, "val", v)
 			if ix, ok := index.(*GeoIndexer); ok {
 				d := map[string]interface{}{"bucket": store, "data": v}
 				if vv, ok := v["_"+ix.Field]; ok {
@@ -41,7 +43,7 @@ func ReIndex(provider ProviderStore, index Indexer) error {
 		}
 		iter.Next()
 	}
-	return nil
+	return os.WriteFile(path, []byte(index.Index().Name()+"|"+time.Now().UTC().String()), os.ModePerm)
 }
 
 // IndexedData represents a stored row

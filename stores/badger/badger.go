@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
-	"io/ioutil"
 	"time"
 
 	"os"
@@ -400,10 +399,9 @@ func NewWithIndex(root, index string, indexMapping mapping.IndexMapping, indexOp
 	if reIndex {
 		ixj, _ := json.Marshal(ix.Index().Mapping())
 		logger.Debug("reindex db", "mapping", string(ixj))
-		if err := indexer.ReIndex(s, ix); err != nil {
+		if err := indexer.ReIndex(indexPath, s, ix); err != nil {
 			return nil, err
 		}
-		err = ioutil.WriteFile(indexInitPath, []byte(index+"|"+time.Now().UTC().String()), os.ModePerm)
 	}
 	s.IndexType = index
 	s.IndexPath = indexPath
