@@ -405,7 +405,7 @@ func NewWithIndex(root, index string, indexMapping mapping.IndexMapping, indexOp
 	if reIndex {
 		ixj, _ := json.Marshal(ix.Index().Mapping())
 		logger.Debug("reindex db", "mapping", string(ixj))
-		if err := indexer.ReIndex(indexPath, s, ix); err != nil {
+		if err := indexer.ReIndex(index, indexPath, s, ix); err != nil {
 			return nil, err
 		}
 	}

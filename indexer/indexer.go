@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strconv"
 	"time"
 
 	log "github.com/mgutz/logxi/v1"
@@ -17,8 +18,9 @@ import (
 	// "github.com/blevesearch/blevex/regexp"
 )
 
-func ReIndex(path string, provider ProviderStore, index Indexer) error {
+func ReIndex(name, path string, provider ProviderStore, index Indexer) error {
 	iter, _ := provider.Cursor()
+	count := 0
 	bar := progressbar.Default(-1, "reindexing")
 	defer bar.Finish()
 	for iter.Valid() {
@@ -40,10 +42,11 @@ func ReIndex(path string, provider ProviderStore, index Indexer) error {
 			} else {
 				index.IndexDocument(ID, IndexedData{store, v})
 			}
+			count++
 		}
 		iter.Next()
 	}
-	return os.WriteFile(path, []byte(index.Index().Name()+"|"+time.Now().UTC().String()), os.ModePerm)
+	return os.WriteFile(path, []byte(name+"|"+time.Now().UTC().String()+"|"+strconv.Itoa(count)), os.ModePerm)
 }
 
 // IndexedData represents a stored row
