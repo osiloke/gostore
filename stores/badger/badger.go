@@ -330,9 +330,15 @@ var indexFilenamePrefix = map[string]string{
 
 // NewWithIndex New badger store with indexer
 func NewWithIndex(root, index string, indexMapping mapping.IndexMapping, indexOpts []indexer.IndexOptions, storeOpts ...StoreOpt) (s *BadgerStore, err error) {
+
+	dbPath := filepath.Join(root, "db")
 	if _, err := os.Stat(root); os.IsNotExist(err) {
 		os.Mkdir(root, os.FileMode(0700))
 		logger.Debug("created root path " + root)
+	}
+	// Check if database is locked
+	if _, err := os.Stat(filepath.Join(dbPath, "LOCK")); err == nil {
+		return nil, common.ErrDatabaseLocked
 	}
 	indexPath := filepath.Join(root, indexFilenamePrefix[index]+"db.index")
 	var ix indexer.Indexer
