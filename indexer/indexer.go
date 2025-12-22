@@ -18,7 +18,7 @@ import (
 	// "github.com/blevesearch/blevex/regexp"
 )
 
-func ReIndex(name, path string, provider ProviderStore, index Indexer) error {
+func ReIndex(name, indexInitFilePath string, provider ProviderStore, index Indexer) error {
 	iter, _ := provider.Cursor()
 	count := 0
 	bar := progressbar.Default(-1, "reindexing")
@@ -43,10 +43,14 @@ func ReIndex(name, path string, provider ProviderStore, index Indexer) error {
 				index.IndexDocument(ID, IndexedData{store, v})
 			}
 			count++
+		} else {
+			logger.Warn("failed to unmarshal value", "key", string(key), "value", string(val))
 		}
 		iter.Next()
 	}
-	return os.WriteFile(path, []byte(name+"|"+time.Now().UTC().String()+"|"+strconv.Itoa(count)), os.ModePerm)
+	logger.Info("reindexed", "count", count)
+	logger.Info("writing index file", "path", indexInitFilePath)
+	return os.WriteFile(indexInitFilePath, []byte(name+"|"+time.Now().UTC().String()+"|"+strconv.Itoa(count)), os.ModePerm)
 }
 
 // IndexedData represents a stored row

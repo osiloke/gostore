@@ -332,42 +332,44 @@ var indexFilenamePrefix = map[string]string{
 func NewWithIndex(root, index string, indexMapping mapping.IndexMapping, indexOpts []indexer.IndexOptions, storeOpts ...StoreOpt) (s *BadgerStore, err error) {
 
 	dbPath := filepath.Join(root, "db")
-	if _, err := os.Stat(root); os.IsNotExist(err) {
+	if _, err = os.Stat(root); os.IsNotExist(err) {
 		os.Mkdir(root, os.FileMode(0700))
 		logger.Debug("created root path " + root)
 	}
 	// Check if database is locked
-	if _, err := os.Stat(filepath.Join(dbPath, "LOCK")); err == nil {
+	if _, err = os.Stat(filepath.Join(dbPath, "LOCK")); err == nil {
 		return nil, common.ErrDatabaseLocked
 	}
 	indexPath := filepath.Join(root, indexFilenamePrefix[index]+"db.index")
 	var ix indexer.Indexer
 	reIndex := false
-	indexInitPath := filepath.Join(root, ".init")
-	if _, err := os.Stat(indexPath); os.IsNotExist(err) {
+	indexInitFilePath := filepath.Join(root, ".init")
+	if _, err = os.Stat(indexPath); os.IsNotExist(err) {
 		reIndex = true
-		os.Remove(indexInitPath)
+		os.Remove(indexInitFilePath)
 	}
-	if _, err := os.Stat(indexInitPath); os.IsNotExist(err) {
+	if _, err = os.Stat(indexInitFilePath); os.IsNotExist(err) {
 		reIndex = true
 	}
-	if dat, err := os.ReadFile(indexInitPath); err != nil || !strings.HasPrefix(string(dat), index) {
+	var dat []byte
+	if dat, err = os.ReadFile(indexInitFilePath); err != nil || !strings.HasPrefix(string(dat), index) {
 		// initialized index is not the same as current index
 		reIndex = true
-		logger.Warn("initialized db is different from current", "path", indexInitPath, "init", string(dat), "current", index)
-		entries, err := os.ReadDir(root)
+		logger.Warn("initialized db is different from current", "path", indexInitFilePath, "init", string(dat), "current", index)
+		var entries []os.DirEntry
+		entries, err = os.ReadDir(root)
 		if err != nil {
-			return nil, err
+			return
 		}
 		for _, entry := range entries {
 			if entry.IsDir() && strings.HasSuffix(entry.Name(), "db.index") {
-				err := os.RemoveAll(filepath.Join(root, entry.Name()))
+				err = os.RemoveAll(filepath.Join(root, entry.Name()))
 				if err != nil {
 					return nil, err
 				}
 				logger.Debug("removing index", "path", entry.Name())
 			} else if strings.HasSuffix(entry.Name(), ".init") {
-				err := os.RemoveAll(filepath.Join(root, entry.Name()))
+				err = os.RemoveAll(filepath.Join(root, entry.Name()))
 				if err != nil {
 					return nil, err
 				}
@@ -377,7 +379,7 @@ func NewWithIndex(root, index string, indexMapping mapping.IndexMapping, indexOp
 	}
 	switch index {
 	case "badger":
-		if _, err := os.Stat(indexPath); os.IsNotExist(err) {
+		if _, osErr := os.Stat(indexPath); os.IsNotExist(osErr) {
 			os.Mkdir(indexPath, os.FileMode(0700))
 			logger.Debug("made badger db index path", "path", indexPath)
 		}
@@ -398,15 +400,15 @@ func NewWithIndex(root, index string, indexMapping mapping.IndexMapping, indexOp
 	for _, opt := range indexOpts {
 		opt(geoIndex)
 	}
-	s, err = NewWithIndexer(root, geoIndex, storeOpts...)
+	s, err = NewWithIndexer(indexInitFilePath, geoIndex, storeOpts...)
 	if err != nil {
-		return nil, err
+		return
 	}
 	if reIndex {
 		ixj, _ := json.Marshal(ix.Index().Mapping())
 		logger.Debug("reindex db", "mapping", string(ixj))
-		if err := indexer.ReIndex(index, indexPath, s, ix); err != nil {
-			return nil, err
+		if err = indexer.ReIndex(index, root, s, ix); err != nil {
+			return
 		}
 	}
 	s.IndexType = index
