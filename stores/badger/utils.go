@@ -19,19 +19,19 @@ func defaultLogger() *defaultLog {
 }
 
 func (l *defaultLog) Errorf(f string, v ...interface{}) {
-	l.Printf("ERROR: "+f, v...)
+	l.Error(fmt.Sprintf(f, v...))
 }
 
 func (l *defaultLog) Warningf(f string, v ...interface{}) {
-	l.Printf("WARNING: "+f, v...)
+	l.Warn(fmt.Sprintf(f, v...))
 }
 
 func (l *defaultLog) Infof(f string, v ...interface{}) {
-	l.Printf("INFO: "+f, v...)
+	l.Info(fmt.Sprintf(f, v...))
 }
 
 func (l *defaultLog) Debugf(f string, v ...interface{}) {
-	l.Printf("DEBUG: "+f, v...)
+	l.Debug(fmt.Sprintf(f, v...))
 }
 
 func BadgerDefaultOptions(path string) badgerdb.Options {

@@ -2,6 +2,7 @@ package common
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -43,6 +44,11 @@ func (l *ZerologLogger) fieldsFromArgs(args ...interface{}) map[string]interface
 	}
 	return fields
 }
+
+func (l *ZerologLogger) Printf(f string, v ...interface{}) {
+	l.Debug(fmt.Sprintf(f, v...))
+}
+
 func (l *ZerologLogger) Trace(msg string, args ...interface{}) {
 	l.WithLevel(zerolog.TraceLevel).Fields(l.fieldsFromArgs(args...)).Msg(msg)
 }
