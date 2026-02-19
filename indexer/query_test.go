@@ -25,7 +25,7 @@ func TestAddFacets(t *testing.T) {
 				bleve.NewSearchRequest(q),
 				&Facets{
 					Top: map[string]TopFacet{
-						"topActiveCars": TopFacet{Name: "topActiveCars", Field: "car", Count: 5},
+						"topActiveCars": {Name: "topActiveCars", Field: "car", Count: 5},
 					},
 				},
 			},
@@ -163,7 +163,7 @@ func TestGetQueryString(t *testing.T) {
 				"store",
 				map[string]interface{}{"name": []string{"^fifty.*", "^.*cent", "!dollarcent"}, "another": "another"},
 			},
-			`+bucket:store +data.name:/fifty.*/ +data.name:/.*cent/ -data.name:"dollarcent" +data.another:"another"`,
+			`+bucket:store +data.another:"another" +data.name:/fifty.*/ +data.name:/.*cent/ -data.name:"dollarcent"`,
 		},
 		{
 			"test date less",
@@ -180,6 +180,14 @@ func TestGetQueryString(t *testing.T) {
 				map[string]interface{}{"name": []string{"^fifty.*", "^.*cent"}},
 			},
 			`+bucket:store +data.name:/fifty.*/ +data.name:/.*cent/`,
+		},
+		{
+			"testOptionalFields",
+			args{
+				"store",
+				map[string]interface{}{"color": "?red", "name": "?pink"},
+			},
+			`+bucket:store data.color:"red" data.name:"pink"`,
 		},
 	}
 	for _, tt := range tests {
@@ -254,6 +262,15 @@ func Test_getQueryValue(t *testing.T) {
 				"!^osi",
 			},
 			`-data.name:/osi/`,
+		},
+		{
+			"test optional string",
+			args{
+				"store",
+				"color",
+				"?red",
+			},
+			`data.color:"red"`,
 		},
 	}
 	for _, tt := range tests {

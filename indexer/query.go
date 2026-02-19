@@ -3,6 +3,7 @@ package indexer
 import (
 	"fmt"
 	"reflect"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -54,13 +55,14 @@ func getQueryValue(store, k string, v interface{}) string {
 		}
 		prefix := "+"
 		valRune := []rune(vv)
-		if valRune[0] == '\x21' {
+		switch valRune[0] {
+		case '\x21':
 			prefix = "-"
 			valRune = valRune[1:]
-		} else if valRune[0] == 63 {
+		case 63:
 			prefix = ""
 			valRune = valRune[1:]
-		} else if valRune[0] == 43 {
+		case 43:
 			prefix = "+"
 			valRune = valRune[1:]
 		}
@@ -105,7 +107,13 @@ func getQueryValue(store, k string, v interface{}) string {
 
 func GetQueryString(store string, filter map[string]interface{}) string {
 	queryString := ""
-	for k, v := range filter {
+	keys := make([]string, 0, len(filter))
+	for k := range filter {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		v := filter[k]
 		if _v, ok := v.([]string); ok {
 			for _, vv := range _v {
 				res := getQueryValue(store, k, vv)

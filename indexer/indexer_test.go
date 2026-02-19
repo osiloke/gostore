@@ -1,6 +1,7 @@
 package indexer
 
 import (
+	"fmt"
 	"os"
 	"testing"
 
@@ -227,12 +228,14 @@ func TestIndexQueryFieldMaxScore(t *testing.T) {
 				}
 			}
 			Convey("Query document", func() {
-				res, err := index.MatchQuery("How are you", "question", ExplainRequest(true))
+				res, err := index.MatchQuery("confirm\\ password", "question")
 				if err != nil {
 					panic(err)
 				}
-				So(res.Total, ShouldEqual, 1)
-				So(res.Hits[0].ID, ShouldEqual, "1")
+				So(res.Total, ShouldEqual, 3)
+				if res.Total > 0 {
+					So(res.Hits[0].ID, ShouldEqual, "5")
+				}
 			})
 		})
 	})
@@ -666,6 +669,194 @@ func TestIndexer_GeoDistanceQuery(t *testing.T) {
 					}
 					So(res.Hits.Len(), ShouldEqual, 2)
 				})
+			})
+		})
+	})
+}
+
+func TestIndexRegexQuery(t *testing.T) {
+	indexPath := "./test.index"
+
+	Convey("Create a new index at "+indexPath, t, func() {
+		index := NewDefaultIndexer(indexPath)
+		defer index.Close()
+		defer os.RemoveAll(indexPath)
+		Convey("Index document", func() {
+			doc := struct {
+				Name        string
+				Description string
+			}{
+				Name:        "gostore",
+				Description: "A fast storage engine",
+			}
+
+			err := index.IndexDocument("1", doc)
+			if err != nil {
+				panic(err)
+			}
+
+			// Add random documents
+			for i := 0; i < 10; i++ {
+				randomDoc := struct {
+					Name        string
+					Description string
+				}{
+					Name:        fmt.Sprintf("item-%d", i),
+					Description: fmt.Sprintf("A random item number %d", i),
+				}
+				err := index.IndexDocument(fmt.Sprintf("random-%d", i), randomDoc)
+				if err != nil {
+					panic(err)
+				}
+			}
+
+			Convey("Query with regex", func() {
+				res, err := index.Query("Name:/go.*ore/")
+				if err != nil {
+					panic(err)
+				}
+				So(res.Total, ShouldEqual, 1)
+				So(res.Hits[0].ID, ShouldEqual, "1")
+			})
+		})
+	})
+}
+
+func TestIndexRegexEmptyOrValue(t *testing.T) {
+	indexPath := "./test.index"
+
+	Convey("Create a new index at "+indexPath, t, func() {
+		index := NewDefaultIndexer(indexPath)
+		defer index.Close()
+		defer os.RemoveAll(indexPath)
+		Convey("Index documents with different status", func() {
+			docs := []struct {
+				ID     string
+				Status string
+			}{
+				{ID: "1", Status: "active"},
+				{ID: "2", Status: ""},
+				{ID: "3", Status: "inactive"},
+			}
+
+			for _, doc := range docs {
+				err := index.IndexDocument(doc.ID, doc)
+				if err != nil {
+					panic(err)
+				}
+			}
+
+			Convey("Query for active or empty status (Expected to fail/error)", func() {
+				// Regex to match "active" or an empty string
+				// In Bleve, empty strings are generally not indexed as terms.
+				_, err := index.Query("Status:/active/ Status:/^$/")
+				So(err, ShouldNotBeNil)
+			})
+		})
+	})
+}
+
+func TestIndexOptionalFieldsMatching(t *testing.T) {
+	indexPath := "./test.index"
+
+	Convey("Create a new index at "+indexPath, t, func() {
+		index := NewDefaultIndexer(indexPath)
+		defer index.Close()
+		defer os.RemoveAll(indexPath)
+		Convey("Index documents with different optional fields", func() {
+			docs := []struct {
+				ID    string
+				Type  string
+				Color string
+			}{
+				{ID: "1", Type: "apple", Color: "red"},
+				{ID: "2", Type: "banana", Color: "yellow"},
+				{ID: "3", Type: "apple", Color: "green"},
+			}
+
+			for _, doc := range docs {
+				err := index.IndexDocument(doc.ID, doc)
+				if err != nil {
+					panic(err)
+				}
+			}
+
+			Convey("Query with two optional fields matching both", func() {
+				// Query for Type:apple OR Color:red
+				// Document 1 matches both.
+				// Document 3 matches apple.
+				res, err := index.Query("Type:apple Color:red")
+				if err != nil {
+					panic(err)
+				}
+
+				So(res.Total, ShouldEqual, 2)
+				// verify doc 1 is first as it matches both and should have higher score
+				So(res.Hits[0].ID, ShouldEqual, "1")
+			})
+
+			Convey("Query with two optional fields matching different documents", func() {
+				// Query for Color:red OR Color:yellow
+				res, err := index.Query("Color:red Color:yellow")
+				if err != nil {
+					panic(err)
+				}
+
+				So(res.Total, ShouldEqual, 2)
+				ids := []string{res.Hits[0].ID, res.Hits[1].ID}
+				So(ids, ShouldContain, "1")
+				So(ids, ShouldContain, "2")
+			})
+		})
+	})
+}
+
+func TestIndexOptionalDifferentFieldsMatching(t *testing.T) {
+	indexPath := "./test.index"
+
+	Convey("Create a new index at "+indexPath, t, func() {
+		index := NewDefaultIndexer(indexPath)
+		defer index.Close()
+		defer os.RemoveAll(indexPath)
+		Convey("Index documents with different fields", func() {
+			docs := []struct {
+				ID    string
+				Name  string
+				Color string
+			}{
+				{ID: "1", Name: "pink panther", Color: "pink"},
+				{ID: "2", Name: "red rose", Color: "red"},
+				{ID: "3", Name: "pink floyd", Color: "black"},
+				{ID: "4", Name: "random floyd", Color: "orange"},
+			}
+
+			for _, doc := range docs {
+				err := index.IndexDocument(doc.ID, doc)
+				if err != nil {
+					panic(err)
+				}
+			}
+
+			Convey("Query for Color:red OR Name:pink", func() {
+				// Document 1 matches Name:pink (prefix/term) and Color:pink (not explicitly queried but shows up in text)
+				// Wait, the query is "Color:red Name:pink"
+				// Document 1 matches Name:pink
+				// Document 2 matches Color:red
+				// Document 3 matches Name:pink
+				res, err := index.Query("Color:red Name:pink")
+				if err != nil {
+					panic(err)
+				}
+
+				So(res.Total, ShouldEqual, 3)
+
+				ids := make([]string, 0)
+				for _, hit := range res.Hits {
+					ids = append(ids, hit.ID)
+				}
+				So(ids, ShouldContain, "1")
+				So(ids, ShouldContain, "2")
+				So(ids, ShouldContain, "3")
 			})
 		})
 	})
