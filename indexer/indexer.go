@@ -22,6 +22,21 @@ const (
 	defaultTablePrefix = "t$"
 )
 
+// ReIndexOptions specifies configuration for the re-indexing process.
+type ReIndexOptions struct {
+	BatchSize int
+}
+
+// ReIndexOption is a function type that modifies ReIndexOptions.
+type ReIndexOption func(*ReIndexOptions)
+
+// WithBatchSize returns a ReIndexOption that sets the batch size for indexing.
+func WithBatchSize(size int) ReIndexOption {
+	return func(o *ReIndexOptions) {
+		o.BatchSize = size
+	}
+}
+
 // ReIndex rebuilds the search index from scratch by iterating over every record
 // in the store and re-indexing each one. It is typically called when the index
 // is missing, corrupt, or the backing index type has changed.
@@ -41,6 +56,7 @@ const (
 //     wrapped in an [IndexedData] value containing the bucket name and the raw data
 //     map. The full storage key is used as the document ID to prevent collisions
 //     across tables.
+//   - opts: optional re-indexing configuration (e.g. [WithBatchSize]).
 //
 // # Key splitting
 //
@@ -69,18 +85,25 @@ const (
 //
 // On success the function writes the init file and returns nil. Any error writing
 // the init file is returned to the caller.
-func ReIndex(name, indexInitFilePath string, provider ProviderStore, index Indexer) error {
+func ReIndex(name, indexInitFilePath string, provider ProviderStore, index Indexer, opts ...ReIndexOption) error {
+	options := &ReIndexOptions{
+		BatchSize: 100,
+	}
+	for _, opt := range opts {
+		opt(options)
+	}
 	iter, _ := provider.Cursor()
 	count := 0
 	bar := progressbar.Default(-1, "reindexing")
 	defer bar.Finish()
 	batch := index.BatchIndex()
-	batchSize := 1000
+	batchSize := options.BatchSize
 
+	processedInBatch := 0
 	for iter.Valid() {
 		key := iter.Key()
 		val := iter.Value()
-		bar.Add(1)
+		processedInBatch++
 		var v map[string]interface{}
 		if err := json.Unmarshal(val, &v); err == nil {
 			k := string(key)
@@ -104,6 +127,8 @@ func ReIndex(name, indexInitFilePath string, provider ProviderStore, index Index
 				if err := index.Batch(batch); err != nil {
 					return err
 				}
+				bar.Add(processedInBatch)
+				processedInBatch = 0
 				batch = index.BatchIndex()
 			}
 		} else {
@@ -116,6 +141,7 @@ func ReIndex(name, indexInitFilePath string, provider ProviderStore, index Index
 			return err
 		}
 	}
+	bar.Add(processedInBatch)
 	logger.Info("reindexed", "count", count)
 	logger.Info("writing index file", "path", indexInitFilePath)
 	return os.WriteFile(indexInitFilePath, []byte(name+"|"+time.Now().UTC().String()+"|"+strconv.Itoa(count)), os.ModePerm)

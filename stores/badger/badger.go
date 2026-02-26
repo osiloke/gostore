@@ -49,20 +49,28 @@ func WithKeyFormat(kf KeyFormat) StoreOpt {
 	}
 }
 
+// WithReIndexBatchSize is a store option that sets the batch size for re-indexing.
+func WithReIndexBatchSize(size int) StoreOpt {
+	return func(s *BadgerStore) {
+		s.ReIndexBatchSize = size
+	}
+}
+
 // BadgerStore gostore implementation that used badgerdb
 type BadgerStore struct {
-	Bucket       []byte
-	Db           *badgerdb.DB
-	Path         string
-	Indexer      indexer.Indexer
-	IndexType    string
-	IndexPath    string
-	IndexMapping mapping.IndexMapping
-	tableConfig  map[string]*TableConfig
-	t            *time.Ticker
-	quit         chan struct{}
-	done         chan bool
-	KeyFormat    KeyFormat
+	Bucket           []byte
+	Db               *badgerdb.DB
+	Path             string
+	Indexer          indexer.Indexer
+	IndexType        string
+	IndexPath        string
+	IndexMapping     mapping.IndexMapping
+	tableConfig      map[string]*TableConfig
+	t                *time.Ticker
+	quit             chan struct{}
+	done             chan bool
+	KeyFormat        KeyFormat
+	ReIndexBatchSize int
 }
 
 // IndexedData represents a stored row
@@ -407,7 +415,11 @@ func NewWithIndex(root, index string, indexMapping mapping.IndexMapping, indexOp
 	if reIndex {
 		ixj, _ := json.Marshal(ix.Index().Mapping())
 		logger.Debug("reindex db", "mapping", string(ixj))
-		if err = indexer.ReIndex(index, indexInitFilePath, s, ix); err != nil {
+		var reindexOpts []indexer.ReIndexOption
+		if s.ReIndexBatchSize > 0 {
+			reindexOpts = append(reindexOpts, indexer.WithBatchSize(s.ReIndexBatchSize))
+		}
+		if err = indexer.ReIndex(index, indexInitFilePath, s, ix, reindexOpts...); err != nil {
 			return
 		}
 	}
