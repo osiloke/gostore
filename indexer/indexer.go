@@ -9,8 +9,9 @@ import (
 
 	log "github.com/mgutz/logxi/v1"
 
-	"encoding/json"
 	"strings"
+
+	jsoniter "github.com/json-iterator/go"
 
 	"github.com/blevesearch/bleve/v2"
 	"github.com/blevesearch/bleve/v2/mapping"
@@ -21,6 +22,8 @@ import (
 const (
 	defaultTablePrefix = "t$"
 )
+
+var jiter = jsoniter.ConfigCompatibleWithStandardLibrary
 
 // ReIndexOptions specifies configuration for the re-indexing process.
 type ReIndexOptions struct {
@@ -105,7 +108,7 @@ func ReIndex(name, indexInitFilePath string, provider ProviderStore, index Index
 		val := iter.Value()
 		processedInBatch++
 		var v map[string]interface{}
-		if err := json.Unmarshal(val, &v); err == nil {
+		if err := jiter.Unmarshal(val, &v); err == nil {
 			k := string(key)
 			// Use the full key as the document ID to prevent cross-store index overwriting
 			indexID := strings.TrimPrefix(k, defaultTablePrefix)

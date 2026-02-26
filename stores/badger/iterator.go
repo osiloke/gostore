@@ -24,20 +24,15 @@ func (i *Iterator) Current() ([]byte, []byte, bool) {
 }
 
 func (i *Iterator) Key() []byte {
-	ks := i.iterator.Item().Key()
-	k := make([]byte, len(ks))
-	copy(k, ks)
-
-	return k
+	return i.iterator.Item().KeyCopy(nil)
 }
 
 func (i *Iterator) Value() []byte {
-	var val []byte
-	i.iterator.Item().Value(func(v []byte) error {
-		val = append([]byte{}, v...)
+	v, err := i.iterator.Item().ValueCopy(nil)
+	if err != nil {
 		return nil
-	})
-	return val
+	}
+	return v
 }
 
 func (i *Iterator) Valid() bool {
