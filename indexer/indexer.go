@@ -90,7 +90,7 @@ func WithBatchSize(size int) ReIndexOption {
 // the init file is returned to the caller.
 func ReIndex(name, indexInitFilePath string, provider ProviderStore, index Indexer, opts ...ReIndexOption) error {
 	options := &ReIndexOptions{
-		BatchSize: 100,
+		BatchSize: 0,
 	}
 	for _, opt := range opts {
 		opt(options)
@@ -103,6 +103,7 @@ func ReIndex(name, indexInitFilePath string, provider ProviderStore, index Index
 	batchSize := options.BatchSize
 
 	processedInBatch := 0
+	lastUpdate := time.Now()
 	for iter.Valid() {
 		key := iter.Key()
 		val := iter.Value()
@@ -124,27 +125,44 @@ func ReIndex(name, indexInitFilePath string, provider ProviderStore, index Index
 			} else {
 				d = IndexedData{store, v}
 			}
-			batch.Index(indexID, d)
-			count++
-			if count%batchSize == 0 {
-				if err := index.Batch(batch); err != nil {
+			if batchSize > 0 {
+				batch.Index(indexID, d)
+			} else {
+				if err := index.IndexDocument(indexID, d); err != nil {
 					return err
 				}
+			}
+			count++
+			if batchSize > 0 {
+				if count%batchSize == 0 || time.Since(lastUpdate) >= time.Minute {
+					if batch.Size() > 0 {
+						if err := index.Batch(batch); err != nil {
+							return err
+						}
+						bar.Add(processedInBatch)
+						processedInBatch = 0
+						lastUpdate = time.Now()
+						batch = index.BatchIndex()
+					}
+				}
+			} else if time.Since(lastUpdate) >= time.Minute {
 				bar.Add(processedInBatch)
 				processedInBatch = 0
-				batch = index.BatchIndex()
+				lastUpdate = time.Now()
 			}
 		} else {
 			logger.Warn("failed to unmarshal value", "key", string(key), "value", string(val))
 		}
 		iter.Next()
 	}
-	if batch.Size() > 0 {
+	if batchSize > 0 && batch.Size() > 0 {
 		if err := index.Batch(batch); err != nil {
 			return err
 		}
 	}
-	bar.Add(processedInBatch)
+	if processedInBatch > 0 {
+		bar.Add(processedInBatch)
+	}
 	logger.Info("reindexed", "count", count)
 	logger.Info("writing index file", "path", indexInitFilePath)
 	return os.WriteFile(indexInitFilePath, []byte(name+"|"+time.Now().UTC().String()+"|"+strconv.Itoa(count)), os.ModePerm)
