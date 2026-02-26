@@ -74,6 +74,9 @@ func ReIndex(name, indexInitFilePath string, provider ProviderStore, index Index
 	count := 0
 	bar := progressbar.Default(-1, "reindexing")
 	defer bar.Finish()
+	batch := index.BatchIndex()
+	batchSize := 1000
+
 	for iter.Valid() {
 		key := iter.Key()
 		val := iter.Value()
@@ -85,20 +88,33 @@ func ReIndex(name, indexInitFilePath string, provider ProviderStore, index Index
 			indexID := strings.TrimPrefix(k, defaultTablePrefix)
 			u := strings.SplitN(indexID, "|", 2)
 			store := u[0]
+			var d interface{}
 			if ix, ok := index.(*GeoIndexer); ok {
-				d := map[string]interface{}{"bucket": store, "data": v}
+				geoDoc := map[string]interface{}{"bucket": store, "data": v}
 				if vv, ok := v["_"+ix.Field]; ok {
-					d[ix.Field] = vv
+					geoDoc[ix.Field] = vv
 				}
-				ix.IndexDocument(indexID, d)
+				d = geoDoc
 			} else {
-				index.IndexDocument(indexID, IndexedData{store, v})
+				d = IndexedData{store, v}
 			}
+			batch.Index(indexID, d)
 			count++
+			if count%batchSize == 0 {
+				if err := index.Batch(batch); err != nil {
+					return err
+				}
+				batch = index.BatchIndex()
+			}
 		} else {
 			logger.Warn("failed to unmarshal value", "key", string(key), "value", string(val))
 		}
 		iter.Next()
+	}
+	if batch.Size() > 0 {
+		if err := index.Batch(batch); err != nil {
+			return err
+		}
 	}
 	logger.Info("reindexed", "count", count)
 	logger.Info("writing index file", "path", indexInitFilePath)
