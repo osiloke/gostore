@@ -3,6 +3,7 @@ package badger
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/blevesearch/bleve/v2"
@@ -81,10 +82,17 @@ func NewIndexedBadgerRows(name string, total uint64, result *bleve.SearchResult,
 				} else {
 					h := result.Hits[ci]
 					logger.Info(fmt.Sprintf("retrieving %s from %s store in badgerdb", h.ID, name))
-					row, err := bs._Get(h.ID, name)
+					// h.ID is now the full badger DB key format (t$<store>|<id>)
+					// but _Get expects only the <id> part because it prefixes it again.
+					idParts := strings.Split(h.ID, "|")
+					shortID := h.ID // fallback if split fails
+					if len(idParts) > 1 {
+						shortID = idParts[1]
+					}
+					row, err := bs._Get(shortID, name)
 					if err != nil {
 						if err == common.ErrNotFound {
-							//not found so remove from indexer
+							//not found so remove from indexer using the full key (h.ID)
 							bs.Indexer.UnIndexDocument(h.ID)
 							retrieved <- ""
 							continue
@@ -131,7 +139,12 @@ func (s *SyncIndexRows) Next(dst interface{}) (bool, error) {
 	if int(s.ci) != s.result.Hits.Len() {
 		h := s.result.Hits[s.ci]
 		logger.Info("next row", "key", h.ID, "store", s.name)
-		row, err := s.bs._Get(h.ID, s.name)
+		idParts := strings.Split(h.ID, "|")
+		shortID := h.ID
+		if len(idParts) > 1 {
+			shortID = idParts[1]
+		}
+		row, err := s.bs._Get(shortID, s.name)
 		if err == nil {
 			err = json.Unmarshal(row[1], dst)
 			if err == nil {
@@ -139,7 +152,7 @@ func (s *SyncIndexRows) Next(dst interface{}) (bool, error) {
 				return true, nil
 			}
 			if err == common.ErrNotFound {
-				//not found so remove from indexer
+				//not found so remove from indexer using full key
 				s.bs.Indexer.UnIndexDocument(h.ID)
 			} else {
 				logger.Warn(err.Error())
@@ -156,13 +169,18 @@ func (s *SyncIndexRows) NextRaw() ([]byte, bool) {
 	if int(s.ci) != s.result.Hits.Len() {
 		h := s.result.Hits[s.ci]
 		logger.Info("NEXT KEY", "id", h.ID, "store", s.name)
-		row, err := s.bs._Get(h.ID, s.name)
+		idParts := strings.Split(h.ID, "|")
+		shortID := h.ID
+		if len(idParts) > 1 {
+			shortID = idParts[1]
+		}
+		row, err := s.bs._Get(shortID, s.name)
 		if err == nil {
 			s.ci++
 			return row[1], true
 		}
 		if err == common.ErrNotFound {
-			//not found so remove from indexer
+			//not found so remove from indexer using full key
 			s.bs.Indexer.UnIndexDocument(h.ID)
 		} else {
 			logger.Warn(err.Error())

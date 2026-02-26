@@ -137,34 +137,34 @@ func TestBadgerStore_QueryReturnBestExactMatchFirst(t *testing.T) {
 		wantErr bool
 	}{
 		{
-			"1",
-			db,
-			"message-callback",
-			false,
+			name:    "1",
+			s:       db,
+			arg:     "message-callback",
+			wantErr: false,
 		},
 		{
-			"2",
-			db,
-			"duper-message-callback",
-			false,
+			name:    "2",
+			s:       db,
+			arg:     "duper-message-callback",
+			wantErr: false,
 		},
 		{
-			"3",
-			db,
-			"mega-message-callback",
-			false,
+			name:    "3",
+			s:       db,
+			arg:     "mega-message-callback",
+			wantErr: false,
 		},
 		{
-			"4",
-			db,
-			"super-duper-message-callback",
-			false,
+			name:    "4",
+			s:       db,
+			arg:     "super-duper-message-callback",
+			wantErr: false,
 		},
 		{
-			"5",
-			db,
-			"mega-super-duper-message-callback",
-			false,
+			name:    "5",
+			s:       db,
+			arg:     "mega-super-duper-message-callback",
+			wantErr: false,
 		},
 	}
 
@@ -497,7 +497,7 @@ func TestBadgerStore_GeoQuery(t *testing.T) {
 	}
 
 	db := createGeoDB("GeoQuery", "location", "people", "bucket")
-	// defer removeDB("GeoQuery", db)
+	defer removeDB("GeoQuery", db)
 	db.CreateTable("data", nil)
 	key := common.NewObjectId().String()
 	_, err := db.SaveWithGeo(key, "people", map[string]interface{}{
@@ -559,14 +559,15 @@ func TestBadgerStore_GeoQuery(t *testing.T) {
 			}},
 	}, "home.location")
 	tests := []struct {
-		name string
-		s    *BadgerStore
-		args args
-		// want    common.ObjectRows
-		wantErr bool
+		name      string
+		s         *BadgerStore
+		args      args
+		wantCount int
+		wantNames []string
+		wantErr   bool
 	}{
 		{
-			"get item",
+			"get emike (within 1mi)",
 			db,
 			args{
 				-77.0272, 38.8999,
@@ -577,17 +578,89 @@ func TestBadgerStore_GeoQuery(t *testing.T) {
 				"people",
 				nil,
 			},
+			1,
+			[]string{"emike emoekpere"},
 			false,
 		},
+		{
+			"get all (within 3000mi - basically whole USA coast to coast approx)",
+			db,
+			args{
+				-100.0, 39.0, // roughly center of US
+				"3000mi",
+				map[string]interface{}{"type": "person"},
+				10,
+				0,
+				"people",
+				nil,
+			},
+			4,
+			[]string{"emike emoekpere", "osiloke emoekpere", "oduffa emoekpere", "tony emoekpere"},
+			false,
+		},
+		{
+			"get only emike with count filter (within 3000mi)",
+			db,
+			args{
+				-100.0, 39.0,
+				"3000mi",
+				map[string]interface{}{"type": "person", "count": "10"},
+				10,
+				0,
+				"people",
+				nil,
+			},
+			1,
+			[]string{"emike emoekpere"},
+			false,
+		},
+		{
+			"no results (very far away)",
+			db,
+			args{
+				0.0, 0.0,
+				"1mi",
+				map[string]interface{}{"type": "person"},
+				10,
+				0,
+				"people",
+				nil,
+			},
+			0,
+			[]string{},
+			true, // GeoQuery returns ErrNotFound if res.Total == 0
+		},
 	}
-	tt := tests[0]
-	rows, err := tt.s.GeoQuery(tt.args.lon, tt.args.lat, tt.args.distance, tt.args.filter, tt.args.count, tt.args.skip, tt.args.store, tt.args.opts)
-	if (err != nil) != tt.wantErr {
-		t.Errorf("BadgerStore.GeoQuery() error = %v, wantErr %v", err, tt.wantErr)
-		return
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rows, err := tt.s.GeoQuery(tt.args.lon, tt.args.lat, tt.args.distance, tt.args.filter, tt.args.count, tt.args.skip, tt.args.store, tt.args.opts)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("BadgerStore.GeoQuery() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if tt.wantErr {
+				return
+			}
+			assert.NotNil(t, rows, "rows were empty")
+
+			var dst map[string]interface{}
+			count := 0
+			var names []string
+			for {
+				ok, err := rows.Next(&dst)
+				if !ok {
+					break
+				}
+				assert.NoError(t, err)
+				names = append(names, dst["name"].(string))
+				count++
+			}
+			assert.Equal(t, tt.wantCount, count, "unexpected record count")
+			for _, wantName := range tt.wantNames {
+				assert.Contains(t, names, wantName, "missing expected name")
+			}
+		})
 	}
-	t.Log(rows)
-	assert.NotNil(t, rows, "rows were empty")
 }
 
 func TestBadgerStore_BatchInsert(t *testing.T) {

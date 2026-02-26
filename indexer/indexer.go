@@ -18,6 +18,57 @@ import (
 	// "github.com/blevesearch/blevex/regexp"
 )
 
+const (
+	defaultTablePrefix = "t$"
+)
+
+// ReIndex rebuilds the search index from scratch by iterating over every record
+// in the store and re-indexing each one. It is typically called when the index
+// is missing, corrupt, or the backing index type has changed.
+//
+// Parameters:
+//   - name: a label for the index type (e.g. "badger", "moss"). It is embedded in
+//     the init file written on completion and used by callers to detect whether the
+//     index type has changed since the last run.
+//   - indexInitFilePath: path to a marker file written after a successful re-index.
+//     The file contains "<name>|<UTC timestamp>|<document count>" and is used by
+//     [NewWithIndex] to decide whether a re-index is needed on next startup.
+//   - provider: the underlying key-value store. Its [ProviderStore.Cursor] method
+//     is used to iterate all raw records. Keys are expected to be in the form
+//     "<TablePrefix><table>|<id>" (e.g. "t$users|abc123").
+//   - index: the target search index. If index is a [*GeoIndexer] the document is
+//     wrapped with bucket and geo-field metadata before indexing; otherwise it is
+//     wrapped in an [IndexedData] value containing the bucket name and the raw data
+//     map. The full storage key is used as the document ID to prevent collisions
+//     across tables.
+//
+// # Key splitting
+//
+// Each raw key (e.g. "t$users|abc123") is split on the first "|" separator:
+//
+//	parts   = SplitN("t$users|abc123", "|", 2)
+//	ID      = "t$users|abc123"   // full key → Bleve document ID (globally unique across tables)
+//	store   = "users"            // TrimPrefix(parts[0], "t$") → bucket label inside the document
+//
+// Using the full key as the document ID prevents two tables that share a record ID
+// (e.g. "users|abc123" and "orders|abc123") from overwriting each other in the index.
+// The stripped table name is stored as the "bucket" field so results can later be
+// filtered or grouped by table.
+//
+// When index is a [*GeoIndexer], the document envelope also promotes the geo field
+// from the record data to the top level (stripping the leading "_"):
+//
+//	v["_location"] → d["location"]
+//
+// This is required because Bleve's geopoint mapping expects the geo field at the
+// root of the indexed document. For a plain [Indexer] the record is wrapped in an
+// [IndexedData] struct instead.
+//
+// Records whose values cannot be unmarshalled as JSON objects are skipped with a
+// warning log and do not contribute to the final count.
+//
+// On success the function writes the init file and returns nil. Any error writing
+// the init file is returned to the caller.
 func ReIndex(name, indexInitFilePath string, provider ProviderStore, index Indexer) error {
 	iter, _ := provider.Cursor()
 	count := 0
@@ -30,17 +81,18 @@ func ReIndex(name, indexInitFilePath string, provider ProviderStore, index Index
 		var v map[string]interface{}
 		if err := json.Unmarshal(val, &v); err == nil {
 			k := string(key)
-			u := strings.SplitN(k, "|", 2)
-			ID := u[1]
-			store := strings.TrimPrefix(u[0], "t$")
+			// Use the full key as the document ID to prevent cross-store index overwriting
+			indexID := strings.TrimPrefix(k, defaultTablePrefix)
+			u := strings.SplitN(indexID, "|", 2)
+			store := u[0]
 			if ix, ok := index.(*GeoIndexer); ok {
 				d := map[string]interface{}{"bucket": store, "data": v}
 				if vv, ok := v["_"+ix.Field]; ok {
 					d[ix.Field] = vv
 				}
-				ix.IndexDocument(ID, d)
+				ix.IndexDocument(indexID, d)
 			} else {
-				index.IndexDocument(ID, IndexedData{store, v})
+				index.IndexDocument(indexID, IndexedData{store, v})
 			}
 			count++
 		} else {

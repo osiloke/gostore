@@ -456,11 +456,34 @@ func (s *BadgerStore) CreateDatabase() error {
 	return nil
 }
 
-func (s *BadgerStore) keyForTable(table string) string {
+// tableWithPrefix returns the key prefix used to namespace all entries belonging
+// to the given table. The resulting key has the form:
+//
+//	<TablePrefix><table>  e.g. "t$users"
+//
+// It is used when iterating or seeking over all rows within a table.
+func (s *BadgerStore) tableWithPrefix(table string) string {
 	return s.KeyFormat.TablePrefix + table
 }
-func (s *BadgerStore) keyForTableId(table, id string) string {
-	return s.keyForTable(table) + s.KeyFormat.IdSeparator + id
+
+// tableKey combines a table name and a record ID into an un-prefixed
+// composite key of the form:
+//
+//	<table><IdSeparator><id>  e.g. "users|abc123"
+//
+// This intermediate key is used by keyForTableId to build the full storage key.
+func (s *BadgerStore) tableKey(table, id string) string {
+	return table + s.KeyFormat.IdSeparator + id
+}
+
+// storedKey returns the full BadgerDB storage key for a specific record
+// within a table. The key has the form:
+//
+//	<TablePrefix><table><IdSeparator><id>  e.g. "t$users|abc123"
+//
+// This key is used for single-record operations such as Get, Save, and Delete.
+func (s *BadgerStore) storedKey(table, id string) string {
+	return s.KeyFormat.TablePrefix + s.tableKey(table, id)
 }
 
 func (s *BadgerStore) CreateTable(table string, config interface{}) error {
@@ -502,7 +525,7 @@ func (s *BadgerStore) updateTableStats(table string, change uint) {
 }
 
 func (s *BadgerStore) _Get(key, store string) ([][]byte, error) {
-	k := s.keyForTableId(store, key)
+	k := s.storedKey(store, key)
 	storeKey := []byte(k)
 	var val []byte
 	err := s.Db.View(func(txn *badgerdb.Txn) error {
@@ -601,7 +624,7 @@ func (s *BadgerStore) FilterDeleteByPrefix(store string) error {
 
 	collectSize := 100000
 	b := s.Indexer.BatchIndex()
-	prefix := []byte(s.keyForTable(store))
+	prefix := []byte(s.tableWithPrefix(store))
 	return s.Db.View(func(txn *badgerdb.Txn) error {
 		opts := badgerdb.DefaultIteratorOptions
 		opts.AllVersions = false
@@ -615,7 +638,7 @@ func (s *BadgerStore) FilterDeleteByPrefix(store string) error {
 			key := it.Item().KeyCopy(nil)
 			keysForDelete = append(keysForDelete, key)
 			keysCollected++
-			b.Delete(string(strings.Split(string(key), "|")[1]))
+			b.Delete(string(key))
 			if keysCollected == collectSize {
 				if err := deleteKeys(keysForDelete); err != nil {
 					return err
@@ -636,7 +659,7 @@ func (s *BadgerStore) FilterDeleteByPrefix(store string) error {
 	})
 }
 func (s *BadgerStore) _Delete(key, store string) error {
-	storeKey := []byte(s.keyForTableId(store, key))
+	storeKey := []byte(s.storedKey(store, key))
 	err := s.Db.Update(func(txn *badgerdb.Txn) error {
 		return txn.Delete(storeKey)
 	})
@@ -650,7 +673,7 @@ func (s *BadgerStore) _Delete(key, store string) error {
 }
 
 func (s *BadgerStore) _Save(key, store string, data []byte) error {
-	storeKey := []byte(s.keyForTableId(store, key))
+	storeKey := []byte(s.storedKey(store, key))
 	err := s.Db.Update(func(txn *badgerdb.Txn) error {
 		logger.Debug("_Save", "key", key, "store", store, "storeKey", storeKey)
 		err := txn.Set(storeKey, data)
@@ -705,7 +728,7 @@ func (s *BadgerStore) All(count int, skip int, store string) (common.ObjectRows,
 
 		var skipCount int
 		var rowCount int
-		prefix := []byte(s.keyForTable(store))
+		prefix := []byte(s.tableWithPrefix(store))
 		for it.Seek(prefix); it.ValidForPrefix(prefix); it.Next() {
 			if skipCount < skip {
 				skipCount++
@@ -787,7 +810,7 @@ func (s *BadgerStore) AllCursor(store string) (common.ObjectRows, error) {
 			it := txn.NewIterator(opts)
 			defer it.Close()
 
-			prefix := []byte(s.keyForTable(store))
+			prefix := []byte(s.tableWithPrefix(store))
 			it.Seek(prefix)
 
 			for it.ValidForPrefix(prefix) {
@@ -839,8 +862,8 @@ func (s *BadgerStore) AllWithinRange(filter map[string]interface{}, count int, s
 // Since get items after a key
 func (s *BadgerStore) Since(id string, count int, skip int, store string) (common.ObjectRows, error) {
 	rows := common.NewCursorRows()
-	prefix := []byte(s.keyForTable(store))
-	startKey := []byte(s.keyForTableId(store, id))
+	prefix := []byte(s.tableWithPrefix(store))
+	startKey := []byte(s.storedKey(store, id))
 	go func(rows *common.CursorRows) {
 		defer rows.Close()
 		err := s.Db.View(func(txn *badgerdb.Txn) error {
@@ -900,7 +923,7 @@ func (s *BadgerStore) Before(id string, count int, skip int, store string) (comm
 		opts.Reverse = true
 		it := txn.NewIterator(opts)
 		defer it.Close()
-		for it.Seek([]byte(s.keyForTableId(store, id))); it.Valid(); it.Next() {
+		for it.Seek([]byte(s.storedKey(store, id))); it.Valid(); it.Next() {
 			item := it.Item()
 			k := item.Key()
 			obj := make([][]byte, 2)
@@ -952,15 +975,16 @@ func (s *BadgerStore) Save(key, store string, src interface{}) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	skey := s.keyForTableId(store, key)
+	skey := s.storedKey(store, key)
+	indexKey := s.tableKey(store, key)
 	storeKey := []byte(skey)
-	logger.Debug("Save", "key", key, "store", store, "storeKey", skey)
+	logger.Debug("Save", "key", key, "store", store, "storeKey", skey, "indexKey", indexKey)
 	err = s.Db.Update(func(txn *badgerdb.Txn) error {
 		err := txn.Set(storeKey, data)
 		if err != nil {
 			return err
 		}
-		return s.Indexer.IndexDocument(key, IndexedData{Bucket: store, Data: src})
+		return s.Indexer.IndexDocument(indexKey, IndexedData{Bucket: store, Data: src})
 	})
 	return key, err
 }
@@ -968,9 +992,10 @@ func (s *BadgerStore) Save(key, store string, src interface{}) (string, error) {
 // SaveWithGeo save
 func (s *BadgerStore) SaveWithGeo(key, store string, src interface{}, field string) (string, error) {
 	if srcMap, ok := src.(map[string]interface{}); ok {
-		skey := s.keyForTableId(store, key)
+		skey := s.storedKey(store, key)
+		indexKey := s.tableKey(store, key)
 		storeKey := []byte(skey)
-		logger.Debug("SaveWithGeo", "key", key, "store", store, "storeKey", skey)
+		logger.Debug("SaveWithGeo", "key", key, "store", store, "storeKey", skey, "indexKey", indexKey)
 		err := s.Db.Update(func(txn *badgerdb.Txn) error {
 			if len(field) > 0 {
 				geo, err := valForPath(field, srcMap)
@@ -985,7 +1010,7 @@ func (s *BadgerStore) SaveWithGeo(key, store string, src interface{}, field stri
 					if err != nil {
 						return err
 					}
-					return s.Indexer.IndexDocument(key, map[string]interface{}{"bucket": store, "data": srcMap, "location": geo})
+					return s.Indexer.IndexDocument(indexKey, map[string]interface{}{"bucket": store, "data": srcMap, "location": geo})
 				}
 				return err
 			}
@@ -998,7 +1023,7 @@ func (s *BadgerStore) SaveWithGeo(key, store string, src interface{}, field stri
 			if err != nil {
 				return err
 			}
-			return s.Indexer.IndexDocument(key, IndexedData{Bucket: store, Data: src})
+			return s.Indexer.IndexDocument(indexKey, IndexedData{Bucket: store, Data: src})
 		})
 		return "", err
 	}
@@ -1008,9 +1033,10 @@ func (s *BadgerStore) SaveWithGeo(key, store string, src interface{}, field stri
 // SaveWithGeoTX save a key within a transaction
 func (s *BadgerStore) SaveWithGeoTX(key, store string, src interface{}, field string, txn common.Transaction) error {
 	if srcMap, ok := src.(map[string]interface{}); ok {
-		skey := s.keyForTableId(store, key)
+		skey := s.storedKey(store, key)
+		indexKey := s.tableKey(store, key)
 		storeKey := []byte(skey)
-		logger.Debug("SaveWithGeoTX", "key", key, "store", store, "storeKey", skey)
+		logger.Debug("SaveWithGeoTX", "key", key, "store", store, "storeKey", skey, "indexKey", indexKey)
 		if len(field) > 0 {
 			geo, err := valForPath(field, srcMap)
 			if err == nil {
@@ -1023,7 +1049,7 @@ func (s *BadgerStore) SaveWithGeoTX(key, store string, src interface{}, field st
 				if err != nil {
 					return err
 				}
-				return s.Indexer.IndexDocument(key, map[string]interface{}{"bucket": store, "data": srcMap, "location": geo})
+				return s.Indexer.IndexDocument(indexKey, map[string]interface{}{"bucket": store, "data": srcMap, "location": geo})
 			}
 			return err
 
@@ -1037,7 +1063,7 @@ func (s *BadgerStore) SaveWithGeoTX(key, store string, src interface{}, field st
 		if err != nil {
 			return err
 		}
-		return s.Indexer.IndexDocument(key, IndexedData{Bucket: store, Data: src})
+		return s.Indexer.IndexDocument(indexKey, IndexedData{Bucket: store, Data: src})
 	}
 	return errors.New("unable to save")
 }
@@ -1048,20 +1074,21 @@ func (s *BadgerStore) SaveTX(key, store string, src interface{}, txn common.Tran
 	if err != nil {
 		return err
 	}
-	skey := s.keyForTableId(store, key)
+	skey := s.storedKey(store, key)
+	indexKey := s.tableKey(store, key)
 	storeKey := []byte(skey)
-	logger.Debug("SaveTX", "key", key, "store", store, "storeKey", skey)
+	logger.Debug("SaveTX", "key", key, "store", store, "storeKey", skey, "indexKey", indexKey)
 	err = txn.Set(storeKey, data)
 	if err != nil {
 		return err
 	}
-	err = s.Indexer.IndexDocument(key, IndexedData{Bucket: store, Data: src})
+	err = s.Indexer.IndexDocument(indexKey, IndexedData{Bucket: store, Data: src})
 	return err
 }
 
 // GetTX get a key within a transaction
 func (s *BadgerStore) GetTX(key string, store string, dst interface{}, txn common.Transaction) error {
-	k := s.keyForTableId(store, key)
+	k := s.storedKey(store, key)
 	storeKey := []byte(k)
 	var val []byte
 	val, err := txn.Get(storeKey)
@@ -1086,29 +1113,6 @@ func (s *BadgerStore) SaveAll(store string, src ...interface{}) (keys []string, 
 }
 func (s *BadgerStore) Update(key string, store string, src interface{}) error {
 	return common.ErrNotImplemented
-	// //get existing
-	// var existing map[string]interface{}
-	// if err := s.Get(key, store, &existing); err != nil {
-	// 	return err
-	// }
-
-	// logger.Info("update", "Store", store, "data", src, "existing", existing)
-	// data, err := json.Marshal(src)
-	// if err != nil {
-	// 	return err
-	// }
-	// if err := json.Unmarshal(data, &existing); err != nil {
-	// 	return err
-	// }
-	// data, err = json.Marshal(existing)
-	// if err != nil {
-	// 	return err
-	// }
-	// if err := s._Save(key, store, data); err != nil {
-	// 	return err
-	// }
-	// err = s.Indexer.IndexDocument(key, IndexedData{store, existing})
-	// return err
 }
 func (s *BadgerStore) Replace(key string, store string, src interface{}) error {
 	_, err := s.Save(key, store, src)
@@ -1118,7 +1122,7 @@ func (s *BadgerStore) ReplaceTX(key string, store string, src interface{}, tx co
 	return s.SaveTX(key, store, src, tx)
 }
 func (s *BadgerStore) DeleteTX(key string, store string, tx common.Transaction) error {
-	skey := s.keyForTableId(store, key)
+	skey := s.storedKey(store, key)
 	storeKey := []byte(skey)
 	logger.Info("DeleteTX", "key", key)
 	return tx.Delete(storeKey)
@@ -1154,7 +1158,12 @@ func (s *BadgerStore) FilterGet(filter map[string]interface{}, store string, dst
 			logger.Info("FilterGet empty result", "result", res.String())
 			return common.ErrNotFound
 		}
-		data, err = s._Get(res.Hits[0].ID, store)
+		idParts := strings.Split(res.Hits[0].ID, "|")
+		shortID := res.Hits[0].ID
+		if len(idParts) > 1 {
+			shortID = idParts[1]
+		}
+		data, err = s._Get(shortID, store)
 		if err != nil {
 			return err
 		}
@@ -1181,7 +1190,12 @@ func (s *BadgerStore) FilterGetTX(filter map[string]interface{}, store string, d
 			return common.ErrNotFound
 		}
 		key := res.Hits[0].ID
-		k := s.keyForTableId(store, key)
+		idParts := strings.Split(key, "|")
+		shortID := key
+		if len(idParts) > 1 {
+			shortID = idParts[1]
+		}
+		k := s.storedKey(store, shortID)
 		storeKey := []byte(k)
 		data, err := tx.Get(storeKey)
 		if err != nil {
@@ -1353,11 +1367,17 @@ func (s *BadgerStore) FilterDelete(query map[string]interface{}, store string, o
 			return common.ErrNotFound
 		}
 		for _, v := range res.Hits {
-			err = s._Delete(v.ID, store)
+			idParts := strings.Split(v.ID, "|")
+			shortID := v.ID
+			if len(idParts) > 1 {
+				shortID = idParts[1]
+			}
+			err = s._Delete(shortID, store)
 			if err != nil {
 				break
 			}
-			err = s.Indexer.UnIndexDocument(v.ID)
+			indexKey := s.tableKey(store, v.ID)
+			err = s.Indexer.UnIndexDocument(indexKey)
 			if err != nil {
 				break
 			}
@@ -1419,14 +1439,15 @@ func (s *BadgerStore) BatchUpdate(id []interface{}, data []interface{}, store st
 			if err != nil {
 				return err
 			}
-			storeKey := []byte(s.keyForTableId(store, key))
+			storeKey := []byte(s.storedKey(store, key))
+			indexKey := s.tableKey(store, key)
 			err = txn.Set(storeKey, data)
 			if err != nil {
 				return err
 			}
 			indexedData := map[string]interface{}{"bucket": store, "data": src}
 			logger.Debug("BatchInsert", "row", indexedData)
-			b.Index(key, indexedData)
+			b.Index(indexKey, indexedData)
 		}
 		return s.Indexer.Batch(b)
 	})
@@ -1440,37 +1461,6 @@ func (s *BadgerStore) BatchFilterDelete(filter []map[string]interface{}, store s
 func (s *BadgerStore) BatchInsert(data []interface{}, store string, opts common.ObjectStoreOptions) (keys []string, err error) {
 	keys = make([]string, len(data))
 	b := s.Indexer.BatchIndex()
-	// err = s.Db.Update(func(txn *badgerdb.Txn) error {
-	// 	for i, src := range data {
-	// 		var key string
-	// 		if _v, ok := src.(map[string]interface{}); ok {
-	// 			if k, ok := _v["id"].(string); ok {
-	// 				key = k
-	// 			} else {
-	// 				key = common.NewObjectId().String()
-	// 				_v["id"] = key
-	// 			}
-	// 		} else if _v, ok := src.(HasID); ok {
-	// 			key = _v.GetId()
-	// 		} else {
-	// 			key = common.NewObjectId().String()
-	// 		}
-	// 		data, err := json.Marshal(src)
-	// 		if err != nil {
-	// 			return err
-	// 		}
-	// 		storeKey := []byte(s.keyForTableId(store, key))
-	// 		err = txn.Set(storeKey, data)
-	// 		if err != nil {
-	// 			return err
-	// 		}
-	// 		indexedData := IndexedData{store, src}
-	// 		logger.Debug("BatchInsert", "row", indexedData)
-	// 		b.Index(key, indexedData)
-	// 		keys[i] = key
-	// 	}
-	// 	return s.Indexer.Batch(b)
-	// })
 	txn := s.Db.NewTransaction(true)
 	defer txn.Discard()
 	for i, src := range data {
@@ -1491,14 +1481,15 @@ func (s *BadgerStore) BatchInsert(data []interface{}, store string, opts common.
 		if err != nil {
 			return nil, err
 		}
-		storeKey := []byte(s.keyForTableId(store, key))
+		storeKey := []byte(s.storedKey(store, key))
+		indexKey := s.tableKey(store, key)
 		err = txn.Set(storeKey, data)
 		if err != nil {
 			return nil, err
 		}
 		indexedData := IndexedData{Bucket: store, Data: src}
 		logger.Debug("BatchInsert", "row", indexedData)
-		b.Index(key, indexedData)
+		b.Index(indexKey, indexedData)
 		keys[i] = key
 	}
 	if err2 := txn.Commit(); err2 != nil {
@@ -1532,14 +1523,15 @@ func (s *BadgerStore) BatchInsertTX(data []interface{}, store string, opts commo
 		if err != nil {
 			return nil, err
 		}
-		storeKey := []byte(s.keyForTableId(store, key))
+		storeKey := []byte(s.storedKey(store, key))
+		indexKey := s.tableKey(store, key)
 		err = txn.Set(storeKey, data)
 		if err != nil {
 			return nil, err
 		}
 		indexedData := IndexedData{Bucket: store, Data: src}
 		logger.Debug("BatchInsertTX", "row", indexedData)
-		b.Index(key, indexedData)
+		b.Index(indexKey, indexedData)
 		keys[i] = key
 	}
 	if err2 := txn.Commit(); err2 != nil {
@@ -1564,7 +1556,8 @@ func (s *BadgerStore) BatchInsertKVAndIndex(rows [][][]byte, store string, opts 
 		for i, row := range rows {
 			key := string(row[0])
 			data := row[1]
-			storeKey := []byte(s.keyForTableId(store, key))
+			storeKey := []byte(s.storedKey(store, key))
+			indexKey := s.tableKey(store, key)
 			err = txn.Set(storeKey, data)
 			if err != nil {
 				return err
@@ -1575,7 +1568,7 @@ func (s *BadgerStore) BatchInsertKVAndIndex(rows [][][]byte, store string, opts 
 			if err != nil {
 				return err
 			}
-			b.Index(key, IndexedData{Bucket: store, Data: iData})
+			b.Index(indexKey, IndexedData{Bucket: store, Data: iData})
 			keys[i] = key
 		}
 		logger.Debug("copied", "rows", len(keys))
@@ -1589,7 +1582,7 @@ func (s *BadgerStore) BatchInsertKV(rows [][][]byte, store string, opts common.O
 		for i, row := range rows {
 			key := string(row[0])
 			data := row[1]
-			storeKey := []byte(s.keyForTableId(store, key))
+			storeKey := []byte(s.storedKey(store, key))
 			err = txn.Set(storeKey, data)
 			if err != nil {
 				return err

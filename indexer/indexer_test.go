@@ -1,10 +1,12 @@
 package indexer
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"testing"
 
+	common "github.com/osiloke/gostore/common"
 	. "github.com/smartystreets/goconvey/convey"
 )
 
@@ -860,4 +862,184 @@ func TestIndexOptionalDifferentFieldsMatching(t *testing.T) {
 			})
 		})
 	})
+}
+
+// ---------------------------------------------------------------------------
+// Helpers for TestReIndex
+// ---------------------------------------------------------------------------
+
+// mockIterator is a minimal common.Iterator backed by a static slice of
+// raw key/value pairs in the "t$<table>|<id>" format used by BadgerStore.
+type mockIterator struct {
+	rows []mockRow
+	pos  int
+}
+
+type mockRow struct {
+	key []byte
+	val []byte
+}
+
+func (m *mockIterator) Seek(key []byte) {}
+func (m *mockIterator) Next()           { m.pos++ }
+func (m *mockIterator) Current() ([]byte, []byte, bool) {
+	if m.pos >= len(m.rows) {
+		return nil, nil, false
+	}
+	r := m.rows[m.pos]
+	return r.key, r.val, true
+}
+func (m *mockIterator) Key() []byte {
+	if m.pos >= len(m.rows) {
+		return nil
+	}
+	return m.rows[m.pos].key
+}
+func (m *mockIterator) Value() []byte {
+	if m.pos >= len(m.rows) {
+		return nil
+	}
+	return m.rows[m.pos].val
+}
+func (m *mockIterator) Valid() bool  { return m.pos < len(m.rows) }
+func (m *mockIterator) Close() error { return nil }
+
+// mockProvider wraps a mockIterator to satisfy ProviderStore.
+type mockProvider struct{ iter *mockIterator }
+
+func (p *mockProvider) Cursor() (common.Iterator, error) { return p.iter, nil }
+
+// ---------------------------------------------------------------------------
+// TestReIndex
+// ---------------------------------------------------------------------------
+
+func TestReIndex(t *testing.T) {
+	Convey("ReIndex", t, func() {
+		indexPath := "./test_reindex.index"
+		initFile := "./test_reindex.init"
+		os.RemoveAll(indexPath)
+		os.Remove(initFile)
+		defer os.RemoveAll(indexPath)
+		defer os.Remove(initFile)
+
+		Convey("indexes all records with a plain Indexer", func() {
+			// Two records in two different tables that share the same record ID ("1")
+			// to prove document IDs are globally unique (full key, not just "1").
+			rows := []mockRow{
+				{
+					key: []byte("t$users|1"),
+					val: mustJSON(map[string]interface{}{"name": "alice", "age": 30}),
+				},
+				{
+					key: []byte("t$orders|1"),
+					val: mustJSON(map[string]interface{}{"item": "book", "qty": 2}),
+				},
+			}
+			index := NewDefaultIndexer(indexPath)
+			defer index.Close()
+
+			err := ReIndex("badger", initFile, &mockProvider{&mockIterator{rows: rows}}, index)
+			So(err, ShouldBeNil)
+
+			Convey("the init file is written with the correct name prefix and count", func() {
+				data, readErr := os.ReadFile(initFile)
+				So(readErr, ShouldBeNil)
+				// Format: "<name>|<UTC timestamp>|<count>"
+				So(string(data), ShouldStartWith, "badger|")
+				So(string(data), ShouldEndWith, "|2")
+			})
+
+			Convey("the users record is findable and its document ID is the full storage key", func() {
+				res, qErr := index.Query("alice")
+				So(qErr, ShouldBeNil)
+				So(res.Total, ShouldBeGreaterThanOrEqualTo, 1)
+				So(res.Hits[0].ID, ShouldEqual, "users|1")
+			})
+
+			Convey("cross-table records with the same ID do not overwrite each other", func() {
+				resUsers, _ := index.Query("alice")
+				resOrders, _ := index.Query("book")
+				So(resUsers.Total, ShouldBeGreaterThanOrEqualTo, 1)
+				So(resOrders.Total, ShouldBeGreaterThanOrEqualTo, 1)
+				So(resUsers.Hits[0].ID, ShouldEqual, "users|1")
+				So(resOrders.Hits[0].ID, ShouldEqual, "orders|1")
+			})
+		})
+
+		Convey("promotes _<field> to the top-level field when using GeoIndexer", func() {
+			// The raw record stores the geo data under "_location" (leading underscore).
+			// ReIndex must strip the underscore and hoist it to "location" at the root
+			// so Bleve's geopoint mapping can see it.
+			rows := []mockRow{
+				{
+					key: []byte("t$places|london"),
+					val: mustJSON(map[string]interface{}{
+						"name":      "london",
+						"_location": map[string]interface{}{"lat": 51.5074, "lon": -0.1278},
+					}),
+				},
+			}
+			geoIndex := &GeoIndexer{
+				Field:   "location",
+				Indexer: NewIndexer(indexPath, NewGeoEnabledIndexMapping("location", "places", "bucket")),
+			}
+			defer geoIndex.Close()
+
+			err := ReIndex("geo-moss", initFile, &mockProvider{&mockIterator{rows: rows}}, geoIndex)
+			So(err, ShouldBeNil)
+
+			Convey("init file records a count of 1", func() {
+				data, readErr := os.ReadFile(initFile)
+				So(readErr, ShouldBeNil)
+				So(string(data), ShouldStartWith, "geo-moss|")
+				So(string(data), ShouldEndWith, "|1")
+			})
+
+			Convey("the document is searchable after geo indexing", func() {
+				res, qErr := geoIndex.Query("london")
+				So(qErr, ShouldBeNil)
+				So(res.Total, ShouldBeGreaterThanOrEqualTo, 1)
+				So(res.Hits[0].ID, ShouldEqual, "places|london")
+			})
+		})
+
+		Convey("skips non-JSON records and does not count them in the init file", func() {
+			rows := []mockRow{
+				{
+					key: []byte("t$users|valid"),
+					val: mustJSON(map[string]interface{}{"name": "bob"}),
+				},
+				{
+					key: []byte("t$users|bad"),
+					val: []byte("not-json-at-all"),
+				},
+			}
+			index := NewDefaultIndexer(indexPath)
+			defer index.Close()
+
+			err := ReIndex("badger", initFile, &mockProvider{&mockIterator{rows: rows}}, index)
+			So(err, ShouldBeNil)
+
+			Convey("count in the init file is 1, not 2", func() {
+				data, readErr := os.ReadFile(initFile)
+				So(readErr, ShouldBeNil)
+				So(string(data), ShouldEndWith, "|1")
+			})
+
+			Convey("the valid record is still indexed correctly", func() {
+				res, qErr := index.Query("bob")
+				So(qErr, ShouldBeNil)
+				So(res.Total, ShouldBeGreaterThanOrEqualTo, 1)
+			})
+		})
+	})
+}
+
+// mustJSON marshals v to JSON and panics on error — test helper only.
+func mustJSON(v interface{}) []byte {
+	b, err := json.Marshal(v)
+	if err != nil {
+		panic(err)
+	}
+	return b
 }
