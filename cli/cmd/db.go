@@ -286,8 +286,10 @@ var dbDeleteCmd = &cobra.Command{
 }
 
 var dbKeysCmd = &cobra.Command{
-	Use:   "keys",
-	Short: "List all keys in the database",
+	Use:   "keys [store]",
+	Short: "List keys in the database",
+	Long:  `List keys in the database. If a store name is provided, only keys in that store are listed.`,
+	Args:  cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		db, err := getStore(dbType, dbPath)
 		if err != nil {
@@ -300,7 +302,30 @@ var dbKeysCmd = &cobra.Command{
 			return errors.New("keys command only supported for Badger store")
 		}
 
-		fmt.Println("Reading keys...")
+		prefix := ""
+		if len(args) > 0 {
+			prefix = args[0]
+		} else if cmd.Flags().Changed("store") {
+			prefix = dbStore
+		}
+
+		if prefix != "" {
+			fmt.Printf("Reading keys in store %s...\n", prefix)
+			return store.Db.View(func(txn *badgerdb.Txn) error {
+				opts := badgerdb.DefaultIteratorOptions
+				opts.PrefetchSize = 100
+				it := txn.NewIterator(opts)
+				defer it.Close()
+				p := []byte(store.KeyFormat.TablePrefix + prefix + store.KeyFormat.IdSeparator)
+				for it.Seek(p); it.ValidForPrefix(p); it.Next() {
+					key := string(it.Item().Key())
+					fmt.Println(key)
+				}
+				return nil
+			})
+		}
+
+		fmt.Println("Reading all keys...")
 		return store.Db.View(func(txn *badgerdb.Txn) error {
 			opts := badgerdb.DefaultIteratorOptions
 			opts.PrefetchSize = 100
