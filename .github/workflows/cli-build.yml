@@ -51,14 +51,16 @@ jobs:
       - name: Prepare Tag
         id: prepare_tag
         run: |
-          # Strip the 'cli/' prefix to satisfy GoReleaser's semver requirement
           TAG="${GITHUB_REF#refs/tags/}"
-          if [[ "$TAG" == cli/* ]]; then
-            CLEAN_TAG="${TAG#cli/}"
-            echo "tag=$CLEAN_TAG" >> $GITHUB_OUTPUT
-            echo "Using clean tag: $CLEAN_TAG (stripped cli/ prefix)"
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          
+          # Find the previous tag with the same prefix
+          if [[ "$TAG" == cli/v* ]]; then
+            PREV_TAG=$(git describe --tags --abbrev=0 --match "cli/v*" "${TAG}^" 2>/dev/null || echo "")
+            echo "prev_tag=$PREV_TAG" >> $GITHUB_OUTPUT
+            echo "Using tag: $TAG, previous tag: $PREV_TAG"
           else
-            echo "tag=$TAG" >> $GITHUB_OUTPUT
+            echo "Using tag: $TAG"
           fi
 
       - name: Run GoReleaser
@@ -70,6 +72,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GORELEASER_CURRENT_TAG: ${{ steps.prepare_tag.outputs.tag }}
+          GORELEASER_PREVIOUS_TAG: ${{ steps.prepare_tag.outputs.prev_tag }}
 
       - name: Archive CLI Binaries
         if: github.event_name != 'push' || !startsWith(github.ref, 'refs/tags/cli/v')
