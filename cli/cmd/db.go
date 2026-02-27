@@ -40,7 +40,7 @@ var (
 func getStore(name, path string) (gostore.ObjectStore, error) {
 	switch name {
 	case "BADGER":
-		return badger.New(path)
+		return badger.NewDBOnly(path)
 	}
 	return nil, errors.New("No store named " + name)
 }
