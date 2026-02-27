@@ -22,8 +22,6 @@ import (
 	"github.com/xiam/to"
 )
 
-var logger = log.New("gostore-contrib.badger")
-
 type HasID interface {
 	GetId() string
 }
@@ -86,7 +84,7 @@ func (d *IndexedData) Type() string {
 	return "indexed_data"
 }
 
-func runValueLogGC(db *badgerdb.DB) {
+func runValueLogGC(db *badgerdb.DB, logger log.Logger) {
 	// at most do 10 value log gc each time.
 	for i := 0; i < 10; i++ {
 		err := db.RunValueLogGC(0.5)
@@ -113,7 +111,7 @@ func (s *BadgerStore) setupTicker() {
 		for {
 			select {
 			case <-ticker.C:
-				runValueLogGC(s.Db)
+				runValueLogGC(s.Db, s.Logger)
 			case <-quit:
 				ticker.Stop()
 				done <- true
@@ -121,7 +119,7 @@ func (s *BadgerStore) setupTicker() {
 			}
 		}
 	}()
-	logger.Debug("setup ticker")
+	s.Logger.Debug("setup ticker")
 }
 
 func (s *BadgerStore) stopTicker() {
@@ -140,7 +138,7 @@ func NewDBOnly(dbPath string, opts ...StoreOpt) (s *BadgerStore, err error) {
 	opt := BadgerDefaultOptions(dbPath)
 	db, err := badgerdb.Open(opt)
 	if err != nil {
-		logger.Error("unable to create badgerdb", "err", err.Error(), "opt", opt)
+		log.New("gostore-contrib.badger").Error("unable to create badgerdb", "err", err.Error(), "opt", opt)
 		return
 	}
 	s = &BadgerStore{
@@ -153,7 +151,7 @@ func NewDBOnly(dbPath string, opts ...StoreOpt) (s *BadgerStore, err error) {
 			TablePrefix: "t$",
 			IdSeparator: "|",
 		},
-		Logger: logger,
+		Logger: log.New("gostore-contrib.badger"),
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -167,11 +165,12 @@ func NewDBOnly(dbPath string, opts ...StoreOpt) (s *BadgerStore, err error) {
 func NewRestorable(root string, opts ...StoreOpt) (s *BadgerStore, err error) {
 	// Use restore options for opening the database
 	dbPath := filepath.Join(root, "db")
-	logger.Debug("New badgerdb", "path", dbPath)
+	l := log.New("gostore-contrib.badger")
+	l.Debug("New badgerdb", "path", dbPath)
 	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
 
 		os.Mkdir(dbPath, os.FileMode(0700))
-		logger.Debug("made badger db", "path", dbPath)
+		l.Debug("made badger db", "path", dbPath)
 	}
 
 	// Check if database is locked
@@ -181,7 +180,7 @@ func NewRestorable(root string, opts ...StoreOpt) (s *BadgerStore, err error) {
 	opt := BadgerRestoreOptions(dbPath)
 	db, err := badgerdb.Open(opt)
 	if err != nil {
-		logger.Error("unable to create badgerdb for restore", "err", err.Error(), "opt", opt)
+		log.New("gostore-contrib.badger").Error("unable to create badgerdb for restore", "err", err.Error(), "opt", opt)
 		return
 	}
 	s = &BadgerStore{
@@ -194,7 +193,7 @@ func NewRestorable(root string, opts ...StoreOpt) (s *BadgerStore, err error) {
 			TablePrefix: "t$",
 			IdSeparator: "|",
 		},
-		Logger: logger,
+		Logger: log.New("gostore-contrib.badger"),
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -206,12 +205,13 @@ func NewRestorable(root string, opts ...StoreOpt) (s *BadgerStore, err error) {
 // New badger store
 func New(root string, opts ...StoreOpt) (s *BadgerStore, err error) {
 	dbPath := filepath.Join(root, "db")
-	logger.Debug("New badgerdb", "path", dbPath)
+	l := log.New("gostore-contrib.badger")
+	l.Debug("New badgerdb", "path", dbPath)
 	indexPath := filepath.Join(root, "db.index")
 	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
 
 		os.Mkdir(dbPath, os.FileMode(0700))
-		logger.Debug("made badger db", "path", dbPath)
+		l.Debug("made badger db", "path", dbPath)
 	}
 
 	// Check if database is locked
@@ -223,7 +223,7 @@ func New(root string, opts ...StoreOpt) (s *BadgerStore, err error) {
 	// opt.SyncWrites = true
 	db, err := badgerdb.Open(opt)
 	if err != nil {
-		logger.Error("unable to create badgerdb", "err", err.Error(), "opt", opt)
+		log.New("gostore-contrib.badger").Error("unable to create badgerdb", "err", err.Error(), "opt", opt)
 		return
 	}
 	indexMapping := bleve.NewIndexMapping()
@@ -243,7 +243,7 @@ func New(root string, opts ...StoreOpt) (s *BadgerStore, err error) {
 			TablePrefix: "t$",
 			IdSeparator: "|",
 		},
-		Logger: logger,
+		Logger: l,
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -252,7 +252,7 @@ func New(root string, opts ...StoreOpt) (s *BadgerStore, err error) {
 	return
 }
 
-func ListKeys(db *badgerdb.DB, allVersion bool) error {
+func ListKeys(db *badgerdb.DB, allVersion bool, logger log.Logger) error {
 	keySize := 0
 	valueSize := 0
 	keyCount := 0
@@ -293,14 +293,15 @@ func ListKeys(db *badgerdb.DB, allVersion bool) error {
 
 // NewWithIndexer New badger store with indexer
 func NewWithIndexer(root string, index indexer.Indexer, opts ...StoreOpt) (s *BadgerStore, err error) {
+	l := log.New("gostore-contrib.badger")
 	if _, err := os.Stat(root); os.IsNotExist(err) {
 		os.Mkdir(root, os.FileMode(0700))
-		logger.Debug("created root path " + root)
+		l.Debug("created root path " + root)
 	}
 	dbPath := filepath.Join(root, "db")
 	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
 		os.Mkdir(dbPath, os.FileMode(0700))
-		logger.Debug("created badger directory " + dbPath)
+		l.Debug("created badger directory " + dbPath)
 	}
 
 	// Check if database is locked
@@ -311,7 +312,7 @@ func NewWithIndexer(root string, index indexer.Indexer, opts ...StoreOpt) (s *Ba
 	opt := BadgerDefaultOptions(dbPath)
 	db, err := badgerdb.Open(opt)
 	if err != nil {
-		logger.Error("unable to create badgerdb", "err", err.Error(), "opt", opt)
+		l.Error("unable to create badgerdb", "err", err.Error(), "opt", opt)
 		return
 	}
 	s = &BadgerStore{
@@ -324,7 +325,7 @@ func NewWithIndexer(root string, index indexer.Indexer, opts ...StoreOpt) (s *Ba
 			TablePrefix: "t$",
 			IdSeparator: "|",
 		},
-		Logger: logger,
+		Logger: l,
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -346,7 +347,7 @@ func NewWithIndex(root, index string, indexMapping mapping.IndexMapping, indexOp
 
 	if _, err = os.Stat(root); os.IsNotExist(err) {
 		os.Mkdir(root, os.FileMode(0700))
-		logger.Debug("created root path " + root)
+		log.New("gostore-contrib.badger").Debug("created root path " + root)
 	}
 	dbPath := filepath.Join(root, "db")
 	// Check if database is locked
@@ -368,7 +369,7 @@ func NewWithIndex(root, index string, indexMapping mapping.IndexMapping, indexOp
 	if dat, err = os.ReadFile(indexInitFilePath); err != nil || !strings.HasPrefix(string(dat), index) {
 		// initialized index is not the same as current index
 		reIndex = true
-		logger.Warn("initialized db is different from current", "path", indexInitFilePath, "init", string(dat), "current", index)
+		log.New("gostore-contrib.badger").Warn("initialized db is different from current", "path", indexInitFilePath, "init", string(dat), "current", index)
 		var entries []os.DirEntry
 		entries, err = os.ReadDir(root)
 		if err != nil {
@@ -380,13 +381,13 @@ func NewWithIndex(root, index string, indexMapping mapping.IndexMapping, indexOp
 				if err != nil {
 					return nil, err
 				}
-				logger.Debug("removing index", "path", entry.Name())
+				log.New("gostore-contrib.badger").Debug("removing index", "path", entry.Name())
 			} else if strings.HasSuffix(entry.Name(), ".init") {
 				err = os.RemoveAll(filepath.Join(root, entry.Name()))
 				if err != nil {
 					return nil, err
 				}
-				logger.Debug("removing index init", "path", entry.Name())
+				log.New("gostore-contrib.badger").Debug("removing index init", "path", entry.Name())
 			}
 		}
 	}
@@ -394,7 +395,7 @@ func NewWithIndex(root, index string, indexMapping mapping.IndexMapping, indexOp
 	case "badger":
 		if _, osErr := os.Stat(indexPath); os.IsNotExist(osErr) {
 			os.Mkdir(indexPath, os.FileMode(0700))
-			logger.Debug("made badger db index path", "path", indexPath)
+			log.New("gostore-contrib.badger").Debug("made badger db index path", "path", indexPath)
 		}
 		ix = indexer.NewBadgerIndexerWithMapping(indexPath, indexMapping)
 	case "memory":
@@ -419,7 +420,7 @@ func NewWithIndex(root, index string, indexMapping mapping.IndexMapping, indexOp
 	}
 	if reIndex {
 		ixj, _ := json.Marshal(ix.Index().Mapping())
-		logger.Debug("reindex db", "mapping", string(ixj))
+		s.Logger.Debug("reindex db", "mapping", string(ixj))
 		var reindexOpts []indexer.ReIndexOption
 		if s.ReIndexBatchSize > 0 {
 			reindexOpts = append(reindexOpts, indexer.WithBatchSize(s.ReIndexBatchSize))
@@ -431,6 +432,7 @@ func NewWithIndex(root, index string, indexMapping mapping.IndexMapping, indexOp
 	s.IndexType = index
 	s.IndexPath = indexPath
 	s.IndexMapping = indexMapping
+	s.Logger.Debug("initialized index", "type", index, "path", indexPath)
 	return
 }
 
@@ -533,6 +535,15 @@ func (s *BadgerStore) FinishTransaction(tx common.Transaction) error {
 	return tx.Commit()
 }
 
+// RestartTransaction restarts transaction
+func (s *BadgerStore) RestartTransaction(txn common.Transaction) error {
+	err := txn.Restart()
+	if err == nil {
+		s.Logger.Debug("BatchTX Restarted")
+	}
+	return err
+}
+
 func (s *BadgerStore) CreateBucket(bucket string) error {
 	return nil
 }
@@ -548,7 +559,7 @@ func (s *BadgerStore) _Get(key, store string) ([][]byte, error) {
 	err := s.Db.View(func(txn *badgerdb.Txn) error {
 		item, err2 := txn.Get(storeKey)
 		if err2 != nil {
-			logger.Info("error getting key", "store", store, "key", k, "err", err2.Error())
+			s.Logger.Info("error getting key", "store", store, "key", k, "err", err2.Error())
 			return err2
 		}
 		err2 = item.Value(func(v []byte) error {
@@ -566,7 +577,7 @@ func (s *BadgerStore) _Get(key, store string) ([][]byte, error) {
 	if len(val) == 0 {
 		return nil, common.ErrNotFound
 	}
-	logger.Debug("_Get success", "key", key, "storeKey", k)
+	s.Logger.Debug("_Get success", "key", key, "storeKey", k)
 	data := make([][]byte, 2)
 	data[0] = []byte(key)
 	data[1] = val
@@ -692,7 +703,7 @@ func (s *BadgerStore) _Delete(key, store string) error {
 func (s *BadgerStore) _Save(key, store string, data []byte) error {
 	storeKey := []byte(s.storedKey(store, key))
 	err := s.Db.Update(func(txn *badgerdb.Txn) error {
-		logger.Debug("_Save", "key", key, "store", store, "storeKey", storeKey)
+		s.Logger.Debug("_Save", "key", key, "store", store, "storeKey", storeKey)
 		err := txn.Set(storeKey, data)
 		return err
 	})
@@ -776,7 +787,7 @@ func (s *BadgerStore) All(count int, skip int, store string) (common.ObjectRows,
 	})
 
 	if len(objs) > 0 {
-		return &TransactionRows{entries: objs, length: len(objs)}, err
+		return &TransactionRows{entries: objs, length: len(objs), logger: s.Logger}, err
 	}
 	return nil, common.ErrNotFound
 }
@@ -860,7 +871,7 @@ func (s *BadgerStore) AllCursor(store string) (common.ObjectRows, error) {
 
 		// 3. IMPROVEMENT: If an error occurred, communicate it to the consumer.
 		if err != nil {
-			logger.Error("cursor rows for "+store+" failed", "err", err.Error())
+			s.Logger.Error("cursor rows for "+store+" failed", "err", err.Error())
 			// This allows the consumer to see the error by calling rows.LastError()
 			rows.SetLastError(err)
 		}
@@ -924,7 +935,7 @@ func (s *BadgerStore) Since(id string, count int, skip int, store string) (commo
 		})
 
 		if err != nil {
-			logger.Error("cursor rows for "+store+" failed", "err", err.Error())
+			s.Logger.Error("cursor rows for "+store+" failed", "err", err.Error())
 			rows.SetLastError(err)
 		}
 	}(rows)
@@ -995,7 +1006,7 @@ func (s *BadgerStore) Save(key, store string, src interface{}) (string, error) {
 	skey := s.storedKey(store, key)
 	indexKey := s.tableKey(store, key)
 	storeKey := []byte(skey)
-	logger.Debug("Save", "key", key, "store", store, "storeKey", skey, "indexKey", indexKey)
+	s.Logger.Debug("Save", "key", key, "store", store, "storeKey", skey, "indexKey", indexKey)
 	err = s.Db.Update(func(txn *badgerdb.Txn) error {
 		err := txn.Set(storeKey, data)
 		if err != nil {
@@ -1012,7 +1023,7 @@ func (s *BadgerStore) SaveWithGeo(key, store string, src interface{}, field stri
 		skey := s.storedKey(store, key)
 		indexKey := s.tableKey(store, key)
 		storeKey := []byte(skey)
-		logger.Debug("SaveWithGeo", "key", key, "store", store, "storeKey", skey, "indexKey", indexKey)
+		s.Logger.Debug("SaveWithGeo", "key", key, "store", store, "storeKey", skey, "indexKey", indexKey)
 		err := s.Db.Update(func(txn *badgerdb.Txn) error {
 			if len(field) > 0 {
 				geo, err := valForPath(field, srcMap)
@@ -1053,7 +1064,7 @@ func (s *BadgerStore) SaveWithGeoTX(key, store string, src interface{}, field st
 		skey := s.storedKey(store, key)
 		indexKey := s.tableKey(store, key)
 		storeKey := []byte(skey)
-		logger.Debug("SaveWithGeoTX", "key", key, "store", store, "storeKey", skey, "indexKey", indexKey)
+		s.Logger.Debug("SaveWithGeoTX", "key", key, "store", store, "storeKey", skey, "indexKey", indexKey)
 		if len(field) > 0 {
 			geo, err := valForPath(field, srcMap)
 			if err == nil {
@@ -1094,7 +1105,7 @@ func (s *BadgerStore) SaveTX(key, store string, src interface{}, txn common.Tran
 	skey := s.storedKey(store, key)
 	indexKey := s.tableKey(store, key)
 	storeKey := []byte(skey)
-	logger.Debug("SaveTX", "key", key, "store", store, "storeKey", skey, "indexKey", indexKey)
+	s.Logger.Debug("SaveTX", "key", key, "store", store, "storeKey", skey, "indexKey", indexKey)
 	err = txn.Set(storeKey, data)
 	if err != nil {
 		return err
@@ -1115,7 +1126,7 @@ func (s *BadgerStore) GetTX(key string, store string, dst interface{}, txn commo
 	if len(val) == 0 {
 		return common.ErrNotFound
 	}
-	logger.Debug("GetTX success", "key", key, "storeKey", k)
+	s.Logger.Debug("GetTX success", "key", key, "storeKey", k)
 	data := make([][]byte, 2)
 	data[0] = []byte(key)
 	data[1] = val
@@ -1141,7 +1152,7 @@ func (s *BadgerStore) ReplaceTX(key string, store string, src interface{}, tx co
 func (s *BadgerStore) DeleteTX(key string, store string, tx common.Transaction) error {
 	skey := s.storedKey(store, key)
 	storeKey := []byte(skey)
-	logger.Info("DeleteTX", "key", key)
+	s.Logger.Info("DeleteTX", "key", key)
 	return tx.Delete(storeKey)
 }
 func (s *BadgerStore) Delete(key string, store string) error {
@@ -1156,7 +1167,7 @@ func (s *BadgerStore) FilterReplace(filter map[string]interface{}, src interface
 	return common.ErrNotImplemented
 }
 func (s *BadgerStore) FilterGet(filter map[string]interface{}, store string, dst interface{}, opts common.ObjectStoreOptions) error {
-	logger.Info("FilterGet", "filter", filter, "Store", store, "opts", opts)
+	s.Logger.Info("FilterGet", "filter", filter, "Store", store, "opts", opts)
 	if query, ok := filter["q"].(map[string]interface{}); ok {
 		//check if filter contains a nested field which is used to traverse a sub bucket
 		var (
@@ -1164,15 +1175,15 @@ func (s *BadgerStore) FilterGet(filter map[string]interface{}, store string, dst
 		)
 
 		// res, err := s.Indexer.Query(indexer.GetQueryString(store, filter))
-		query := indexer.GetQueryString(store, query)
-		res, err := s.Indexer.QueryWithOptions(query, 1, 0, true, []string{}, indexer.OrderRequest([]string{"-_score", "-_id"}))
+		q := indexer.GetQueryString(store, query)
+		res, err := s.Indexer.QueryWithOptions(q, 1, 0, true, []string{}, indexer.OrderRequest([]string{"-_score", "-_id"}))
 		if err != nil {
-			logger.Info("FilterGet failed", "query", query)
+			s.Logger.Info("FilterGet failed", "query", q)
 			return err
 		}
-		logger.Info("FilterGet success", "query", query)
+		s.Logger.Info("FilterGet success", "query", q)
 		if res.Total == 0 {
-			logger.Info("FilterGet empty result", "result", res.String())
+			s.Logger.Info("FilterGet empty result", "result", res.String())
 			return common.ErrNotFound
 		}
 		idParts := strings.Split(res.Hits[0].ID, "|")
@@ -1192,18 +1203,18 @@ func (s *BadgerStore) FilterGet(filter map[string]interface{}, store string, dst
 
 }
 func (s *BadgerStore) FilterGetTX(filter map[string]interface{}, store string, dst interface{}, opts common.ObjectStoreOptions, tx common.Transaction) error {
-	logger.Info("FilterGetTX", "filter", filter, "Store", store, "opts", opts)
+	s.Logger.Info("FilterGetTX", "filter", filter, "Store", store, "opts", opts)
 	if query, ok := filter["q"].(map[string]interface{}); ok {
 		//check if filter contains a nested field which is used to traverse a sub bucket
 		// res, err := s.Indexer.Query(indexer.GetQueryString(store, filter))
-		query := indexer.GetQueryString(store, query)
-		res, err := s.Indexer.QueryWithOptions(query, 1, 0, true, []string{}, indexer.OrderRequest([]string{"-_score", "-_id"}))
+		q := indexer.GetQueryString(store, query)
+		res, err := s.Indexer.QueryWithOptions(q, 1, 0, true, []string{}, indexer.OrderRequest([]string{"-_score", "-_id"}))
 		if err != nil {
-			logger.Error("FilterGetTX failed", "query", query)
+			s.Logger.Error("FilterGetTX failed", "query", q)
 			return err
 		}
 		if res.Total == 0 {
-			logger.Error("FilterGetTX empty result", "result", res.String())
+			s.Logger.Error("FilterGetTX empty result", "result", res.String())
 			return common.ErrNotFound
 		}
 		key := res.Hits[0].ID
@@ -1230,10 +1241,10 @@ func (s *BadgerStore) FilterGetTX(filter map[string]interface{}, store string, d
 func (s *BadgerStore) FilterGetAll(filter map[string]interface{}, count int, skip int, store string, opts common.ObjectStoreOptions) (common.ObjectRows, error) {
 	if query, ok := filter["q"].(map[string]interface{}); ok {
 		q := indexer.GetQueryString(store, query)
-		logger.Info("FilterGetAll", "count", count, "skip", skip, "Store", store, "query", q)
+		s.Logger.Info("FilterGetAll", "count", count, "skip", skip, "Store", store, "query", q)
 		res, err := s.Indexer.QueryWithOptions(q, count, skip, true, []string{}, indexer.OrderRequest([]string{"-_score", "-_id"}))
 		if err != nil {
-			logger.Warn("err", "error", err, "res")
+			s.Logger.Warn("err", "error", err, "res")
 			return nil, err
 		}
 		if res.Total == 0 {
@@ -1259,7 +1270,7 @@ func (s *BadgerStore) Query(query, aggregates map[string]interface{}, count int,
 			}
 		}
 		if len(aggregates) == 0 {
-			logger.Info("Query", "count", count, "skip", skip, "Store", store, "query", q, "opts", opts)
+			s.Logger.Info("Query", "count", count, "skip", skip, "Store", store, "query", q, "opts", opts)
 			res, err = s.Indexer.QueryWithOptions(q, count, skip, true, []string{}, order)
 
 		} else {
@@ -1303,12 +1314,12 @@ func (s *BadgerStore) Query(query, aggregates map[string]interface{}, count int,
 					}
 				}
 			}
-			logger.Info("Query", "count", count, "skip", skip, "Store", store, "query", q, "facets", facets, "orderBy", order)
+			s.Logger.Info("Query", "count", count, "skip", skip, "Store", store, "query", q, "facets", facets, "orderBy", order)
 			res, err = s.Indexer.FacetedQuery(q, &facets, count, skip, true, []string{}, order)
 
 		}
 		if err != nil {
-			logger.Warn("err", "error", err)
+			s.Logger.Warn("err", "error", err)
 			return nil, nil, err
 		}
 		if len(res.Facets) > 0 {
@@ -1356,14 +1367,14 @@ func (s *BadgerStore) GeoQuery(lon, lat float64, distance string, query map[stri
 		q = indexer.GetQueryString(store, query)
 		// if len(aggregates) == 0 {
 	}
-	logger.Info("GeoQuery", "count", count, "skip", skip, "Store", store, "lat", lat, "lon", lon, "distance", distance, "query", q)
+	s.Logger.Info("GeoQuery", "count", count, "skip", skip, "Store", store, "lat", lat, "lon", lon, "distance", distance, "query", q)
 	if geoIndexer, ok := s.Indexer.(indexer.GeoCapableIndexer); ok {
 		res, err = geoIndexer.GeoDistanceQuery(q, lon, lat, distance, count, skip, true, []string{}, indexer.OrderRequest([]string{"-_score", "-_id"}))
 	} else {
 		return nil, common.ErrNotImplemented
 	}
 	if err != nil {
-		logger.Warn("err", "error", err)
+		s.Logger.Warn("err", "error", err)
 		return nil, err
 	}
 	if res.Total == 0 {
@@ -1375,7 +1386,7 @@ func (s *BadgerStore) GeoQuery(lon, lat float64, distance string, query map[stri
 
 // FilterDelete filter delete items
 func (s *BadgerStore) FilterDelete(query map[string]interface{}, store string, opts common.ObjectStoreOptions) error {
-	logger.Info("FilterDelete", "filter", query, "store", store)
+	s.Logger.Info("FilterDelete", "filter", query, "store", store)
 	count := 1000
 	res, err := s.Indexer.Query(indexer.GetQueryString(store, query))
 	res, err = s.Indexer.QueryWithOptions(indexer.GetQueryString(store, query), count, 0, true, []string{})
@@ -1413,7 +1424,7 @@ func (s *BadgerStore) FilterCount(filter map[string]interface{}, store string, o
 		return 0, common.ErrNotFound
 	}
 	q := indexer.GetQueryString(store, query)
-	logger.Info("FilterCount", "Store", store, "query", q)
+	s.Logger.Info("FilterCount", "Store", store, "query", q)
 	res, err := s.Indexer.Query(q)
 	if err != nil {
 		return 0, err
@@ -1463,7 +1474,7 @@ func (s *BadgerStore) BatchUpdate(id []interface{}, data []interface{}, store st
 				return err
 			}
 			indexedData := map[string]interface{}{"bucket": store, "data": src}
-			logger.Debug("BatchInsert", "row", indexedData)
+			s.Logger.Debug("BatchInsert", "row", indexedData)
 			b.Index(indexKey, indexedData)
 		}
 		return s.Indexer.Batch(b)
@@ -1505,7 +1516,7 @@ func (s *BadgerStore) BatchInsert(data []interface{}, store string, opts common.
 			return nil, err
 		}
 		indexedData := IndexedData{Bucket: store, Data: src}
-		logger.Debug("BatchInsert", "row", indexedData)
+		s.Logger.Debug("BatchInsert", "row", indexedData)
 		b.Index(indexKey, indexedData)
 		keys[i] = key
 	}
@@ -1547,21 +1558,17 @@ func (s *BadgerStore) BatchInsertTX(data []interface{}, store string, opts commo
 			return nil, err
 		}
 		indexedData := IndexedData{Bucket: store, Data: src}
-		logger.Debug("BatchInsertTX", "row", indexedData)
+		s.Logger.Debug("BatchInsertTX", "row", indexedData)
 		b.Index(indexKey, indexedData)
 		keys[i] = key
 	}
-	if err2 := txn.Commit(); err2 != nil {
-		if strings.Contains(err2.Error(), "Transaction Conflict") {
-			return nil, common.ErrTransactionConflict
-		}
-		return nil, err2
+	err = txn.Commit()
+	if err == nil {
+		s.Logger.Debug("BatchTX Committed")
 	}
-	logger.Debug("BatchTX Committed")
-	if err = txn.Restart(); err != nil {
+	if err = s.RestartTransaction(txn); err != nil {
 		return
 	}
-	logger.Debug("BatchTX Restarted")
 	err = s.Indexer.Batch(b)
 	return
 }
@@ -1588,7 +1595,7 @@ func (s *BadgerStore) BatchInsertKVAndIndex(rows [][][]byte, store string, opts 
 			b.Index(indexKey, IndexedData{Bucket: store, Data: iData})
 			keys[i] = key
 		}
-		logger.Debug("copied", "rows", len(keys))
+		s.Logger.Debug("copied", "rows", len(keys))
 		return s.Indexer.Batch(b)
 	})
 	return
@@ -1607,7 +1614,7 @@ func (s *BadgerStore) BatchInsertKV(rows [][][]byte, store string, opts common.O
 			// dataAsStr := string(data)
 			keys[i] = key
 		}
-		logger.Debug("copied", "rows", len(keys))
+		s.Logger.Debug("copied", "rows", len(keys))
 		return nil
 	})
 	return
@@ -1616,10 +1623,10 @@ func (s *BadgerStore) Close() {
 	s.stopTicker()
 	if s.Db != nil {
 		s.Db.Close()
-		logger.Debug("closed badger store")
+		s.Logger.Debug("closed badger store")
 	}
 	if s.Indexer != nil {
 		s.Indexer.Close()
-		logger.Debug("closed badger index")
+		s.Logger.Debug("closed badger index")
 	}
 }

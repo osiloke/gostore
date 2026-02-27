@@ -24,18 +24,18 @@ func (s *BadgerStore) WriteToHTTP(w http.ResponseWriter) error {
 }
 
 func (s *BadgerStore) Restore(filename string) error {
-	logger.Info("Starting restore process")
+	s.Logger.Info("Starting restore process")
 	f, err := os.Open(filename)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
 
-	logger.Info("Loading data from backup file into existing store")
+	s.Logger.Info("Loading data from backup file into existing store")
 	if err := s.Db.Load(f, 1); err != nil {
 		return err
 	}
 
-	logger.Info("Restore successful")
+	s.Logger.Info("Restore successful")
 	return nil
 }

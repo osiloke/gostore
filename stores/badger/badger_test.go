@@ -15,6 +15,7 @@ import (
 	"github.com/blevesearch/bleve/v2/analysis/token/lowercase"
 	rtoken "github.com/blevesearch/bleve/v2/analysis/tokenizer/regexp"
 	"github.com/blevesearch/bleve/v2/search"
+	log "github.com/mgutz/logxi/v1"
 	common "github.com/osiloke/gostore/common"
 	indexer "github.com/osiloke/gostore/indexer"
 	gostoretesting "github.com/osiloke/gostore/testing"
@@ -22,6 +23,7 @@ import (
 )
 
 var rootPath = "./.testdata"
+var logger = log.New("gostore-contrib.badger.test")
 
 func init() {
 	os.Mkdir(rootPath, 0777)

@@ -3,6 +3,7 @@ package badger
 import (
 	"encoding/json"
 
+	log "github.com/mgutz/logxi/v1"
 	common "github.com/osiloke/gostore/common"
 )
 
@@ -193,6 +194,7 @@ type TransactionRows struct {
 	length  int
 	entries [][][]byte
 	ci      int
+	logger  log.Logger
 }
 
 // Next get next item
@@ -204,7 +206,9 @@ func (s *TransactionRows) Next(dst interface{}) (bool, error) {
 			s.ci++
 			return true, nil
 		}
-		logger.Warn(err.Error())
+		if s.logger != nil {
+			s.logger.Warn(err.Error())
+		}
 		return false, err
 	}
 	return false, common.ErrEOF
