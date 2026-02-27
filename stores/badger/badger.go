@@ -1173,7 +1173,7 @@ func (s *BadgerStore) FilterReplace(filter map[string]interface{}, src interface
 	return common.ErrNotImplemented
 }
 func (s *BadgerStore) FilterGet(filter map[string]interface{}, store string, dst interface{}, opts common.ObjectStoreOptions) error {
-	s.Logger.Info("FilterGet", "filter", filter, "Store", store, "opts", opts)
+	s.Logger.Info("FilterGet", "filter", filter, "store", store, "opts", opts)
 	if query, ok := filter["q"].(map[string]interface{}); ok {
 		//check if filter contains a nested field which is used to traverse a sub bucket
 		var (
@@ -1187,9 +1187,9 @@ func (s *BadgerStore) FilterGet(filter map[string]interface{}, store string, dst
 			s.Logger.Error("FilterGet search failed", "error", err, "query", q)
 			return err
 		}
-		s.Logger.Info("FilterGet metrics", "Total", res.Total, "MaxScore", res.MaxScore, "Took", res.Took)
+		s.Logger.Info("FilterGet metrics", "store", store, "Hits", len(res.Hits), "Total", res.Total, "MaxScore", res.MaxScore, "Took", res.Took)
 		if res.Total == 0 {
-			s.Logger.Info("FilterGet empty result", "query", q)
+			s.Logger.Info("FilterGet empty result", "store", store, "query", q)
 			return common.ErrNotFound
 		}
 		idParts := strings.Split(res.Hits[0].ID, "|")
@@ -1209,7 +1209,7 @@ func (s *BadgerStore) FilterGet(filter map[string]interface{}, store string, dst
 
 }
 func (s *BadgerStore) FilterGetTX(filter map[string]interface{}, store string, dst interface{}, opts common.ObjectStoreOptions, tx common.Transaction) error {
-	s.Logger.Info("FilterGetTX", "filter", filter, "Store", store, "opts", opts)
+	s.Logger.Info("FilterGetTX", "filter", filter, "store", store, "opts", opts)
 	if query, ok := filter["q"].(map[string]interface{}); ok {
 		//check if filter contains a nested field which is used to traverse a sub bucket
 		// res, err := s.Indexer.Query(indexer.GetQueryString(store, filter))
@@ -1219,7 +1219,7 @@ func (s *BadgerStore) FilterGetTX(filter map[string]interface{}, store string, d
 			s.Logger.Error("FilterGetTX search failed", "error", err, "query", q)
 			return err
 		}
-		s.Logger.Info("FilterGetTX metrics", "Total", res.Total, "MaxScore", res.MaxScore, "Took", res.Took)
+		s.Logger.Info("FilterGetTX metrics", "store", store, "Hits", len(res.Hits), "Total", res.Total, "MaxScore", res.MaxScore, "Took", res.Took)
 		if res.Total == 0 {
 			s.Logger.Error("FilterGetTX empty result", "query", q)
 			return common.ErrNotFound
@@ -1248,13 +1248,13 @@ func (s *BadgerStore) FilterGetTX(filter map[string]interface{}, store string, d
 func (s *BadgerStore) FilterGetAll(filter map[string]interface{}, count int, skip int, store string, opts common.ObjectStoreOptions) (common.ObjectRows, error) {
 	if query, ok := filter["q"].(map[string]interface{}); ok {
 		q := indexer.GetQueryString(store, query)
-		s.Logger.Info("FilterGetAll", "count", count, "skip", skip, "Store", store, "query", q)
+		s.Logger.Info("FilterGetAll", "count", count, "skip", skip, "store", store, "query", q)
 		res, err := s.Indexer.QueryWithOptions(q, count, skip, true, []string{}, indexer.OrderRequest([]string{"-_score", "-_id"}))
 		if err != nil {
 			s.Logger.Warn("FilterGetAll search failed", "error", err, "query", q)
 			return nil, err
 		}
-		s.Logger.Info("FilterGetAll metrics", "Total", res.Total, "MaxScore", res.MaxScore, "Took", res.Took)
+		s.Logger.Info("FilterGetAll metrics", "store", store, "Hits", len(res.Hits), "Total", res.Total, "MaxScore", res.MaxScore, "Took", res.Took)
 		if res.Total == 0 {
 			return nil, common.ErrNotFound
 		}
@@ -1278,7 +1278,7 @@ func (s *BadgerStore) Query(query, aggregates map[string]interface{}, count int,
 			}
 		}
 		if len(aggregates) == 0 {
-			s.Logger.Info("Query", "count", count, "skip", skip, "Store", store, "query", q, "opts", opts)
+			s.Logger.Info("Query", "count", count, "skip", skip, "store", store, "query", q, "opts", opts)
 			res, err = s.Indexer.QueryWithOptions(q, count, skip, true, []string{}, order)
 
 		} else {
@@ -1322,7 +1322,7 @@ func (s *BadgerStore) Query(query, aggregates map[string]interface{}, count int,
 					}
 				}
 			}
-			s.Logger.Info("Query", "count", count, "skip", skip, "Store", store, "query", q, "facets", facets, "orderBy", order)
+			s.Logger.Info("Query", "count", count, "skip", skip, "store", store, "query", q, "facets", facets, "orderBy", order)
 			res, err = s.Indexer.FacetedQuery(q, &facets, count, skip, true, []string{}, order)
 
 		}
@@ -1330,7 +1330,7 @@ func (s *BadgerStore) Query(query, aggregates map[string]interface{}, count int,
 			s.Logger.Warn("Query failed", "error", err, "query", q)
 			return nil, nil, err
 		}
-		s.Logger.Info("Query metrics", "Total", res.Total, "MaxScore", res.MaxScore, "Took", res.Took)
+		s.Logger.Info("Query metrics", "store", store, "Hits", len(res.Hits), "Total", res.Total, "MaxScore", res.MaxScore, "Took", res.Took)
 		if len(res.Facets) > 0 {
 			for k, v := range res.Facets {
 				if len(v.NumericRanges) > 0 {
@@ -1376,7 +1376,7 @@ func (s *BadgerStore) GeoQuery(lon, lat float64, distance string, query map[stri
 		q = indexer.GetQueryString(store, query)
 		// if len(aggregates) == 0 {
 	}
-	s.Logger.Info("GeoQuery", "count", count, "skip", skip, "Store", store, "lat", lat, "lon", lon, "distance", distance, "query", q)
+	s.Logger.Info("GeoQuery", "count", count, "skip", skip, "store", store, "lat", lat, "lon", lon, "distance", distance, "query", q)
 	if geoIndexer, ok := s.Indexer.(indexer.GeoCapableIndexer); ok {
 		res, err = geoIndexer.GeoDistanceQuery(q, lon, lat, distance, count, skip, true, []string{}, indexer.OrderRequest([]string{"-_score", "-_id"}))
 	} else {
@@ -1386,7 +1386,7 @@ func (s *BadgerStore) GeoQuery(lon, lat float64, distance string, query map[stri
 		s.Logger.Warn("GeoQuery search failed", "error", err, "query", q)
 		return nil, err
 	}
-	s.Logger.Info("GeoQuery metrics", "Total", res.Total, "MaxScore", res.MaxScore, "Took", res.Took)
+	s.Logger.Info("GeoQuery metrics", "store", store, "Hits", len(res.Hits), "Total", res.Total, "MaxScore", res.MaxScore, "Took", res.Took)
 	if res.Total == 0 {
 		return nil, common.ErrNotFound
 	}
@@ -1401,7 +1401,7 @@ func (s *BadgerStore) FilterDelete(query map[string]interface{}, store string, o
 	q := indexer.GetQueryString(store, query)
 	res, err := s.Indexer.QueryWithOptions(q, count, 0, true, []string{})
 	if err == nil {
-		s.Logger.Info("FilterDelete metrics", "Total", res.Total, "MaxScore", res.MaxScore, "Took", res.Took)
+		s.Logger.Info("FilterDelete metrics", "store", store, "Hits", len(res.Hits), "Total", res.Total, "MaxScore", res.MaxScore, "Took", res.Took)
 		if res.Total == 0 {
 			return common.ErrNotFound
 		}
@@ -1435,13 +1435,13 @@ func (s *BadgerStore) FilterCount(filter map[string]interface{}, store string, o
 		return 0, common.ErrNotFound
 	}
 	q := indexer.GetQueryString(store, query)
-	s.Logger.Info("FilterCount", "Store", store, "query", q)
+	s.Logger.Info("FilterCount", "store", store, "query", q)
 	res, err := s.Indexer.Query(q)
 	if err != nil {
 		s.Logger.Warn("FilterCount search failed", "error", err, "query", q)
 		return 0, err
 	}
-	s.Logger.Info("FilterCount metrics", "Total", res.Total, "MaxScore", res.MaxScore, "Took", res.Took)
+	s.Logger.Info("FilterCount metrics", "store", store, "Hits", len(res.Hits), "Total", res.Total, "MaxScore", res.MaxScore, "Took", res.Took)
 	if res.Total == 0 {
 		return 0, common.ErrNotFound
 	}
