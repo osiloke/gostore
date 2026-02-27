@@ -802,10 +802,6 @@ func (s *BadgerStore) GetAll(count int, skip int, bucket []string) (objs [][][]b
 	return nil, common.ErrNotImplemented
 }
 
-func (s *BadgerStore) _Filter(prefix []byte, count int, skip int, resource string) (objs [][][]byte, err error) {
-	return nil, common.ErrNotImplemented
-}
-
 func (s *BadgerStore) FilterSuffix(suffix []byte, count int, resource string) (objs [][]byte, err error) {
 	return nil, common.ErrNotImplemented
 }
@@ -822,6 +818,28 @@ func (s *BadgerStore) Stats(bucket string) (data map[string]interface{}, err err
 	data = make(map[string]interface{})
 
 	return
+}
+
+func (s *BadgerStore) Count(store string) (int64, error) {
+	var count int64
+	err := s.Db.View(func(txn *badgerdb.Txn) error {
+		opts := badgerdb.DefaultIteratorOptions
+		opts.PrefetchValues = false
+		it := txn.NewIterator(opts)
+		defer it.Close()
+		if store == "" {
+			for it.Rewind(); it.Valid(); it.Next() {
+				count++
+			}
+		} else {
+			prefix := []byte(s.tableWithPrefix(store) + s.KeyFormat.IdSeparator)
+			for it.Seek(prefix); it.ValidForPrefix(prefix); it.Next() {
+				count++
+			}
+		}
+		return nil
+	})
+	return count, err
 }
 
 func (s *BadgerStore) Cursor() (common.Iterator, error) {

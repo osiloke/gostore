@@ -34,7 +34,7 @@ import (
 
 var (
 	dbPath, dbType, dbStore, dbOutput string
-	dbKey, dbData, dbDataFile         string
+	dbData, dbDataFile                string
 	dbCount                           int
 )
 
@@ -285,6 +285,46 @@ var dbDeleteCmd = &cobra.Command{
 	},
 }
 
+var dbCountCmd = &cobra.Command{
+	Use:   "count [store]",
+	Short: "Count keys in a store or the whole database",
+	Long:  `Count keys in a store or the whole database. If a store name is provided, only keys in that store are counted.`,
+	Args:  cobra.MaximumNArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		db, err := getStore(dbType, dbPath)
+		if err != nil {
+			return err
+		}
+		defer db.Close()
+
+		store, ok := db.(*badger.BadgerStore)
+		if !ok {
+			return errors.New("count command only supported for Badger store")
+		}
+
+		targetStore := ""
+		if len(args) > 0 {
+			targetStore = args[0]
+		} else if cmd.Flags().Changed("store") {
+			targetStore = dbStore
+		}
+
+		if targetStore != "" {
+			fmt.Printf("Counting keys in store %s...\n", targetStore)
+		} else {
+			fmt.Println("Counting all keys in database...")
+		}
+
+		count, err := store.Count(targetStore)
+		if err != nil {
+			return fmt.Errorf("error counting keys: %v", err)
+		}
+
+		fmt.Printf("Total keys: %d\n", count)
+		return nil
+	},
+}
+
 var dbKeysCmd = &cobra.Command{
 	Use:   "keys [store]",
 	Short: "List keys in the database",
@@ -431,6 +471,7 @@ func init() {
 	dbCmd.AddCommand(dbUpdateCmd)
 	dbCmd.AddCommand(dbDeleteCmd)
 	dbCmd.AddCommand(dbKeysCmd)
+	dbCmd.AddCommand(dbCountCmd)
 	dbCmd.AddCommand(dbPrefixesCmd)
 	dbCmd.AddCommand(dbFindCmd)
 
