@@ -54,6 +54,12 @@ func WithReIndexBatchSize(size int) StoreOpt {
 	}
 }
 
+func WithLogger(logger log.Logger) StoreOpt {
+	return func(s *BadgerStore) {
+		s.Logger = logger
+	}
+}
+
 // BadgerStore gostore implementation that used badgerdb
 type BadgerStore struct {
 	Bucket           []byte
