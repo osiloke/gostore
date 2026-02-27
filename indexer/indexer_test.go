@@ -1062,6 +1062,50 @@ func TestReIndex(t *testing.T) {
 	})
 }
 
+func TestIndexIDFormat(t *testing.T) {
+	Convey("Document ID Formatting", t, func() {
+		indexPath := "./test_id_format.index"
+		initFile := "./test_id_format.init"
+		os.RemoveAll(indexPath)
+		os.Remove(initFile)
+		defer os.RemoveAll(indexPath)
+		defer os.Remove(initFile)
+
+		Convey("ReIndex should strip 't$' prefix and result in Hits[].ID as 'store|id'", func() {
+			rows := []mockRow{
+				{
+					key: []byte("t$products|p123"),
+					val: mustJSON(map[string]interface{}{"name": "Widget"}),
+				},
+			}
+			index := NewDefaultIndexer(indexPath)
+			defer index.Close()
+
+			err := ReIndex("badger", initFile, &mockProvider{&mockIterator{rows: rows}}, index)
+			So(err, ShouldBeNil)
+
+			res, _ := index.Query("Widget")
+			So(res.Total, ShouldEqual, 1)
+			// Confirm ID is 'products|p123' NOT 't$products|p123'
+			So(res.Hits[0].ID, ShouldEqual, "products|p123")
+		})
+
+		Convey("Direct IndexDocument should use the provided ID exactly (caller's responsibility)", func() {
+			index := NewDefaultIndexer(indexPath)
+			defer index.Close()
+
+			// In BadgerStore.Save, indexKey is store + "|" + key
+			indexKey := "users|u1"
+			err := index.IndexDocument(indexKey, map[string]interface{}{"name": "osi"})
+			So(err, ShouldBeNil)
+
+			res, _ := index.Query("osi")
+			So(res.Total, ShouldEqual, 1)
+			So(res.Hits[0].ID, ShouldEqual, "users|u1")
+		})
+	})
+}
+
 // mustJSON marshals v to JSON and panics on error — test helper only.
 func mustJSON(v interface{}) []byte {
 	b, err := json.Marshal(v)

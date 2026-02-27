@@ -74,47 +74,51 @@ func NewIndexedBadgerRows(name string, total uint64, result *bleve.SearchResult,
 				break OUTER
 
 			case item := <-nextItem:
-				b.logger.Info("current index", "ci", ci, "total", result.Hits.Len())
-				if ci == result.Hits.Len() {
-					b.lastError = common.ErrEOF
-					b.logger.Info("break badger rows loop")
-					retrieved <- ""
-					break OUTER
+			INNER:
+				for {
+					b.logger.Info("current index", "ci", ci, "total", result.Hits.Len())
+					if ci == result.Hits.Len() {
+						b.lastError = common.ErrEOF
+						b.logger.Info("break badger rows loop")
+						retrieved <- ""
+						break OUTER
 
-				} else {
-					h := result.Hits[ci]
-					b.logger.Info(fmt.Sprintf("retrieving %s from %s store in badgerdb", h.ID, name))
-					// h.ID is now the full badger DB key format (t$<store>|<id>)
-					// but _Get expects only the <id> part because it prefixes it again.
-					idParts := strings.Split(h.ID, "|")
-					shortID := h.ID // fallback if split fails
-					if len(idParts) > 1 {
-						shortID = idParts[1]
-					}
-					row, err := bs._Get(shortID, name)
-					if err != nil {
-						if err == common.ErrNotFound {
-							//not found so remove from indexer using the full key (h.ID)
-							bs.Indexer.UnIndexDocument(h.ID)
-							retrieved <- ""
-							continue
-						} else {
+					} else {
+						h := result.Hits[ci]
+						b.logger.Info(fmt.Sprintf("retrieving %s from %s store in badgerdb", h.ID, name))
+						// h.ID is now the full badger DB key format without prefix (<store>|<id>)
+						// but _Get expects only the <id> part because it prefixes it again.
+						idParts := strings.Split(h.ID, "|")
+						shortID := h.ID // fallback if split fails
+						if len(idParts) > 1 {
+							shortID = idParts[1]
+						}
+						row, err := bs._Get(shortID, name)
+						if err != nil {
+							if err == common.ErrNotFound {
+								//not found so remove from indexer using the full key (h.ID)
+								bs.Indexer.UnIndexDocument(h.ID)
+								ci++
+								continue INNER
+							} else {
+								b.logger.Warn(err.Error())
+								b.lastError = err
+								retrieved <- ""
+								break OUTER
+							}
+
+						}
+						if err := json.Unmarshal(row[1], item); err != nil {
 							b.logger.Warn(err.Error())
 							b.lastError = err
 							retrieved <- ""
 							break OUTER
+
 						}
-
+						retrieved <- string(row[0])
+						ci++
+						break INNER
 					}
-					if err := json.Unmarshal(row[1], item); err != nil {
-						b.logger.Warn(err.Error())
-						b.lastError = err
-						retrieved <- ""
-						break OUTER
-
-					}
-					retrieved <- string(row[0])
-					ci++
 				}
 			}
 		}
@@ -138,8 +142,7 @@ type SyncIndexRows struct {
 
 // Next get next item
 func (s *SyncIndexRows) Next(dst interface{}) (bool, error) {
-	err := common.ErrEOF
-	if int(s.ci) != s.result.Hits.Len() {
+	for int(s.ci) != s.result.Hits.Len() {
 		h := s.result.Hits[s.ci]
 		s.logger.Info("next row", "key", h.ID, "store", s.name)
 		idParts := strings.Split(h.ID, "|")
@@ -148,28 +151,32 @@ func (s *SyncIndexRows) Next(dst interface{}) (bool, error) {
 			shortID = idParts[1]
 		}
 		row, err := s.bs._Get(shortID, s.name)
-		if err == nil {
-			err = json.Unmarshal(row[1], dst)
-			if err == nil {
-				s.ci++
-				return true, nil
-			}
+		if err != nil {
 			if err == common.ErrNotFound {
 				//not found so remove from indexer using full key
 				s.bs.Indexer.UnIndexDocument(h.ID)
-			} else {
-				s.logger.Warn(err.Error())
+				s.ci++
+				continue
 			}
+			s.logger.Warn(err.Error())
+			s.lastError = err
+			return false, err
 		}
+		if err := json.Unmarshal(row[1], dst); err != nil {
+			s.logger.Warn(err.Error())
+			s.lastError = err
+			return false, err
+		}
+		s.ci++
+		return true, nil
 	}
-	s.lastError = err
-	return false, err
+	s.lastError = common.ErrEOF
+	return false, common.ErrEOF
 }
 
 // NextRaw get next raw item
 func (s *SyncIndexRows) NextRaw() ([]byte, bool) {
-	err := common.ErrEOF
-	if int(s.ci) != s.result.Hits.Len() {
+	for int(s.ci) != s.result.Hits.Len() {
 		h := s.result.Hits[s.ci]
 		s.logger.Info("NEXT KEY", "id", h.ID, "store", s.name)
 		idParts := strings.Split(h.ID, "|")
@@ -178,18 +185,21 @@ func (s *SyncIndexRows) NextRaw() ([]byte, bool) {
 			shortID = idParts[1]
 		}
 		row, err := s.bs._Get(shortID, s.name)
-		if err == nil {
-			s.ci++
-			return row[1], true
-		}
-		if err == common.ErrNotFound {
-			//not found so remove from indexer using full key
-			s.bs.Indexer.UnIndexDocument(h.ID)
-		} else {
+		if err != nil {
+			if err == common.ErrNotFound {
+				//not found so remove from indexer using full key
+				s.bs.Indexer.UnIndexDocument(h.ID)
+				s.ci++
+				continue
+			}
 			s.logger.Warn(err.Error())
+			s.lastError = err
+			return nil, false
 		}
+		s.ci++
+		return row[1], true
 	}
-	s.lastError = err
+	s.lastError = common.ErrEOF
 	return nil, false
 }
 
