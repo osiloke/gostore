@@ -1,13 +1,13 @@
 module github.com/osiloke/gostore/cli
 
-go 1.23.0
+go 1.24.0
 
 require (
 	github.com/blevesearch/bleve/v2 v2.4.4
 	github.com/dgraph-io/badger/v4 v4.5.0
 	github.com/gosimple/slug v1.15.0
 	github.com/mitchellh/go-homedir v1.1.0
-	github.com/osiloke/gostore/common v0.0.0
+	github.com/osiloke/gostore/common v1.3.2
 	github.com/osiloke/gostore/indexer v0.0.0
 	github.com/osiloke/gostore/stores/badger v0.0.0
 	github.com/spf13/cobra v1.8.1
@@ -61,13 +61,16 @@ require (
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mgutz/ansi v0.0.0-20200706080929-d51e80ef957d // indirect
 	github.com/mgutz/logxi v0.0.0-20161027140823-aebf8a7d67ab // indirect
+	github.com/mitchellh/colorstring v0.0.0-20190213212951-d06e56a500db // indirect
 	github.com/mitchellh/mapstructure v1.1.2 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/mschoch/smat v0.2.0 // indirect
 	github.com/pelletier/go-toml v1.2.0 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
+	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/rs/zerolog v1.34.0 // indirect
+	github.com/schollz/progressbar/v3 v3.18.0 // indirect
 	github.com/spf13/afero v1.1.2 // indirect
 	github.com/spf13/cast v1.3.0 // indirect
 	github.com/spf13/jwalterweatherman v1.0.0 // indirect
@@ -77,6 +80,7 @@ require (
 	go.opencensus.io v0.24.0 // indirect
 	golang.org/x/net v0.31.0 // indirect
 	golang.org/x/sys v0.34.0 // indirect
+	golang.org/x/term v0.28.0 // indirect
 	golang.org/x/text v0.20.0 // indirect
 	google.golang.org/protobuf v1.33.0 // indirect
 	gopkg.in/yaml.v2 v2.2.2 // indirect
