@@ -1,0 +1,66 @@
+name: Build CLI
+
+on:
+  push:
+    branches: [ main ]
+    tags:
+      - 'cli/v*'
+    paths:
+      - 'cli/**'
+      - 'common/**'
+      - 'indexer/**'
+      - 'pool/**'
+      - 'stores/**'
+      - 'worker/**'
+      - 'go.work'
+      - 'go.work.sum'
+      - 'Makefile'
+      - '.goreleaser.yaml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'cli/**'
+      - 'common/**'
+      - 'indexer/**'
+      - 'pool/**'
+      - 'stores/**'
+      - 'worker/**'
+      - 'go.work'
+      - 'go.work.sum'
+      - 'Makefile'
+      - '.goreleaser.yaml'
+
+jobs:
+  goreleaser:
+    name: Build & Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Go Environment
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache: true
+
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: latest
+          args: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/cli/v') && 'release --clean' || 'release --snapshot --clean' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Archive CLI Binaries
+        if: github.event_name != 'push' || !startsWith(github.ref, 'refs/tags/cli/v')
+        uses: actions/upload-artifact@v4
+        with:
+          name: gostore-cli-binaries
+          path: dist/*.tar.gz
+          if-no-files-found: error
