@@ -1178,12 +1178,12 @@ func (s *BadgerStore) FilterGet(filter map[string]interface{}, store string, dst
 		q := indexer.GetQueryString(store, query)
 		res, err := s.Indexer.QueryWithOptions(q, 1, 0, true, []string{}, indexer.OrderRequest([]string{"-_score", "-_id"}))
 		if err != nil {
-			s.Logger.Info("FilterGet failed", "query", q)
+			s.Logger.Error("FilterGet search failed", "error", err, "query", q)
 			return err
 		}
-		s.Logger.Info("FilterGet success", "query", q)
+		s.Logger.Info("FilterGet metrics", "Total", res.Total, "MaxScore", res.MaxScore, "Took", res.Took)
 		if res.Total == 0 {
-			s.Logger.Info("FilterGet empty result", "result", res.String())
+			s.Logger.Info("FilterGet empty result", "query", q)
 			return common.ErrNotFound
 		}
 		idParts := strings.Split(res.Hits[0].ID, "|")
@@ -1210,11 +1210,12 @@ func (s *BadgerStore) FilterGetTX(filter map[string]interface{}, store string, d
 		q := indexer.GetQueryString(store, query)
 		res, err := s.Indexer.QueryWithOptions(q, 1, 0, true, []string{}, indexer.OrderRequest([]string{"-_score", "-_id"}))
 		if err != nil {
-			s.Logger.Error("FilterGetTX failed", "query", q)
+			s.Logger.Error("FilterGetTX search failed", "error", err, "query", q)
 			return err
 		}
+		s.Logger.Info("FilterGetTX metrics", "Total", res.Total, "MaxScore", res.MaxScore, "Took", res.Took)
 		if res.Total == 0 {
-			s.Logger.Error("FilterGetTX empty result", "result", res.String())
+			s.Logger.Error("FilterGetTX empty result", "query", q)
 			return common.ErrNotFound
 		}
 		key := res.Hits[0].ID
@@ -1244,9 +1245,10 @@ func (s *BadgerStore) FilterGetAll(filter map[string]interface{}, count int, ski
 		s.Logger.Info("FilterGetAll", "count", count, "skip", skip, "Store", store, "query", q)
 		res, err := s.Indexer.QueryWithOptions(q, count, skip, true, []string{}, indexer.OrderRequest([]string{"-_score", "-_id"}))
 		if err != nil {
-			s.Logger.Warn("err", "error", err, "res")
+			s.Logger.Warn("FilterGetAll search failed", "error", err, "query", q)
 			return nil, err
 		}
+		s.Logger.Info("FilterGetAll metrics", "Total", res.Total, "MaxScore", res.MaxScore, "Took", res.Took)
 		if res.Total == 0 {
 			return nil, common.ErrNotFound
 		}
@@ -1319,9 +1321,10 @@ func (s *BadgerStore) Query(query, aggregates map[string]interface{}, count int,
 
 		}
 		if err != nil {
-			s.Logger.Warn("err", "error", err)
+			s.Logger.Warn("Query failed", "error", err, "query", q)
 			return nil, nil, err
 		}
+		s.Logger.Info("Query metrics", "Total", res.Total, "MaxScore", res.MaxScore, "Took", res.Took)
 		if len(res.Facets) > 0 {
 			for k, v := range res.Facets {
 				if len(v.NumericRanges) > 0 {
@@ -1374,9 +1377,10 @@ func (s *BadgerStore) GeoQuery(lon, lat float64, distance string, query map[stri
 		return nil, common.ErrNotImplemented
 	}
 	if err != nil {
-		s.Logger.Warn("err", "error", err)
+		s.Logger.Warn("GeoQuery search failed", "error", err, "query", q)
 		return nil, err
 	}
+	s.Logger.Info("GeoQuery metrics", "Total", res.Total, "MaxScore", res.MaxScore, "Took", res.Took)
 	if res.Total == 0 {
 		return nil, common.ErrNotFound
 	}
@@ -1388,9 +1392,10 @@ func (s *BadgerStore) GeoQuery(lon, lat float64, distance string, query map[stri
 func (s *BadgerStore) FilterDelete(query map[string]interface{}, store string, opts common.ObjectStoreOptions) error {
 	s.Logger.Info("FilterDelete", "filter", query, "store", store)
 	count := 1000
-	res, err := s.Indexer.Query(indexer.GetQueryString(store, query))
-	res, err = s.Indexer.QueryWithOptions(indexer.GetQueryString(store, query), count, 0, true, []string{})
+	q := indexer.GetQueryString(store, query)
+	res, err := s.Indexer.QueryWithOptions(q, count, 0, true, []string{})
 	if err == nil {
+		s.Logger.Info("FilterDelete metrics", "Total", res.Total, "MaxScore", res.MaxScore, "Took", res.Took)
 		if res.Total == 0 {
 			return common.ErrNotFound
 		}
@@ -1427,8 +1432,10 @@ func (s *BadgerStore) FilterCount(filter map[string]interface{}, store string, o
 	s.Logger.Info("FilterCount", "Store", store, "query", q)
 	res, err := s.Indexer.Query(q)
 	if err != nil {
+		s.Logger.Warn("FilterCount search failed", "error", err, "query", q)
 		return 0, err
 	}
+	s.Logger.Info("FilterCount metrics", "Total", res.Total, "MaxScore", res.MaxScore, "Took", res.Took)
 	if res.Total == 0 {
 		return 0, common.ErrNotFound
 	}
