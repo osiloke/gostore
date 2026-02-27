@@ -71,6 +71,7 @@ type BadgerStore struct {
 	done             chan bool
 	KeyFormat        KeyFormat
 	ReIndexBatchSize int
+	Logger           log.Logger
 }
 
 // IndexedData represents a stored row
@@ -152,6 +153,7 @@ func NewDBOnly(dbPath string, opts ...StoreOpt) (s *BadgerStore, err error) {
 			TablePrefix: "t$",
 			IdSeparator: "|",
 		},
+		Logger: logger,
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -192,6 +194,7 @@ func NewRestorable(root string, opts ...StoreOpt) (s *BadgerStore, err error) {
 			TablePrefix: "t$",
 			IdSeparator: "|",
 		},
+		Logger: logger,
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -240,6 +243,7 @@ func New(root string, opts ...StoreOpt) (s *BadgerStore, err error) {
 			TablePrefix: "t$",
 			IdSeparator: "|",
 		},
+		Logger: logger,
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -320,6 +324,7 @@ func NewWithIndexer(root string, index indexer.Indexer, opts ...StoreOpt) (s *Ba
 			TablePrefix: "t$",
 			IdSeparator: "|",
 		},
+		Logger: logger,
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -1235,7 +1240,7 @@ func (s *BadgerStore) FilterGetAll(filter map[string]interface{}, count int, ski
 			return nil, common.ErrNotFound
 		}
 		// return NewIndexedBadgerRows(store, res.Total, res, &s), nil
-		return &SyncIndexRows{name: store, length: res.Total, result: res, bs: s}, nil
+		return &SyncIndexRows{name: store, length: res.Total, result: res, bs: s, logger: s.Logger}, nil
 	}
 	return nil, common.ErrNotFound
 }
@@ -1336,7 +1341,7 @@ func (s *BadgerStore) Query(query, aggregates map[string]interface{}, count int,
 			return nil, agg, common.ErrNotFound
 		}
 
-		return &SyncIndexRows{name: store, length: res.Total, result: res, bs: s}, agg, err
+		return &SyncIndexRows{name: store, length: res.Total, result: res, bs: s, logger: s.Logger}, agg, err
 	}
 	return nil, nil, common.ErrNotFound
 }
@@ -1365,7 +1370,7 @@ func (s *BadgerStore) GeoQuery(lon, lat float64, distance string, query map[stri
 		return nil, common.ErrNotFound
 	}
 
-	return &SyncIndexRows{name: store, length: res.Total, result: res, bs: s}, err
+	return &SyncIndexRows{name: store, length: res.Total, result: res, bs: s, logger: s.Logger}, err
 }
 
 // FilterDelete filter delete items

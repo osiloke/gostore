@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/blevesearch/bleve/v2"
+	log "github.com/mgutz/logxi/v1"
 	common "github.com/osiloke/gostore/common"
 )
 
@@ -21,6 +22,7 @@ type IndexedBadgerRows struct {
 	retrieved chan string
 	nextItem  chan interface{}
 	mu        *sync.RWMutex
+	logger    log.Logger
 }
 
 func (s *IndexedBadgerRows) Next(dst interface{}) (bool, error) {
@@ -50,7 +52,7 @@ func (s *IndexedBadgerRows) Close() {
 	}
 	s.mu.RUnlock()
 	s.closed <- true
-	logger.Info("close badger rows")
+	s.logger.Info("close badger rows")
 	s.mu.Lock()
 	s.isClosed = true
 	s.mu.Unlock()
@@ -61,27 +63,27 @@ func NewIndexedBadgerRows(name string, total uint64, result *bleve.SearchResult,
 	retrieved := make(chan string)
 	ci := 0
 
-	b := IndexedBadgerRows{isClosed: false, nextItem: nextItem, closed: closed, retrieved: retrieved, mu: &sync.RWMutex{}}
+	b := IndexedBadgerRows{isClosed: false, nextItem: nextItem, closed: closed, retrieved: retrieved, mu: &sync.RWMutex{}, logger: bs.Logger}
 	go func() {
 	OUTER:
 		for {
 			select {
 			case <-closed:
-				logger.Info("newIndexedBadgerRows closed")
+				b.logger.Info("newIndexedBadgerRows closed")
 				close(closed)
 				break OUTER
 
 			case item := <-nextItem:
-				logger.Info("current index", "ci", ci, "total", result.Hits.Len())
+				b.logger.Info("current index", "ci", ci, "total", result.Hits.Len())
 				if ci == result.Hits.Len() {
 					b.lastError = common.ErrEOF
-					logger.Info("break badger rows loop")
+					b.logger.Info("break badger rows loop")
 					retrieved <- ""
 					break OUTER
 
 				} else {
 					h := result.Hits[ci]
-					logger.Info(fmt.Sprintf("retrieving %s from %s store in badgerdb", h.ID, name))
+					b.logger.Info(fmt.Sprintf("retrieving %s from %s store in badgerdb", h.ID, name))
 					// h.ID is now the full badger DB key format (t$<store>|<id>)
 					// but _Get expects only the <id> part because it prefixes it again.
 					idParts := strings.Split(h.ID, "|")
@@ -97,7 +99,7 @@ func NewIndexedBadgerRows(name string, total uint64, result *bleve.SearchResult,
 							retrieved <- ""
 							continue
 						} else {
-							logger.Warn(err.Error())
+							b.logger.Warn(err.Error())
 							b.lastError = err
 							retrieved <- ""
 							break OUTER
@@ -105,7 +107,7 @@ func NewIndexedBadgerRows(name string, total uint64, result *bleve.SearchResult,
 
 					}
 					if err := json.Unmarshal(row[1], item); err != nil {
-						logger.Warn(err.Error())
+						b.logger.Warn(err.Error())
 						b.lastError = err
 						retrieved <- ""
 						break OUTER
@@ -131,6 +133,7 @@ type SyncIndexRows struct {
 	result    *bleve.SearchResult
 	bs        *BadgerStore
 	ci        uint64
+	logger    log.Logger
 }
 
 // Next get next item
@@ -138,7 +141,7 @@ func (s *SyncIndexRows) Next(dst interface{}) (bool, error) {
 	err := common.ErrEOF
 	if int(s.ci) != s.result.Hits.Len() {
 		h := s.result.Hits[s.ci]
-		logger.Info("next row", "key", h.ID, "store", s.name)
+		s.logger.Info("next row", "key", h.ID, "store", s.name)
 		idParts := strings.Split(h.ID, "|")
 		shortID := h.ID
 		if len(idParts) > 1 {
@@ -155,7 +158,7 @@ func (s *SyncIndexRows) Next(dst interface{}) (bool, error) {
 				//not found so remove from indexer using full key
 				s.bs.Indexer.UnIndexDocument(h.ID)
 			} else {
-				logger.Warn(err.Error())
+				s.logger.Warn(err.Error())
 			}
 		}
 	}
@@ -168,7 +171,7 @@ func (s *SyncIndexRows) NextRaw() ([]byte, bool) {
 	err := common.ErrEOF
 	if int(s.ci) != s.result.Hits.Len() {
 		h := s.result.Hits[s.ci]
-		logger.Info("NEXT KEY", "id", h.ID, "store", s.name)
+		s.logger.Info("NEXT KEY", "id", h.ID, "store", s.name)
 		idParts := strings.Split(h.ID, "|")
 		shortID := h.ID
 		if len(idParts) > 1 {
@@ -183,7 +186,7 @@ func (s *SyncIndexRows) NextRaw() ([]byte, bool) {
 			//not found so remove from indexer using full key
 			s.bs.Indexer.UnIndexDocument(h.ID)
 		} else {
-			logger.Warn(err.Error())
+			s.logger.Warn(err.Error())
 		}
 	}
 	s.lastError = err
@@ -202,5 +205,5 @@ func (s *SyncIndexRows) Count() int {
 
 // Close closes row iterator
 func (s *SyncIndexRows) Close() {
-	logger.Debug("finished processing rows", "result", s.result.String())
+	s.logger.Debug("finished processing rows", "result", s.result.String())
 }

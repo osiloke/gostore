@@ -66,11 +66,12 @@ func WithBatchSize(size int) ReIndexOption {
 // Each raw key (e.g. "t$users|abc123") is split on the first "|" separator:
 //
 //	parts   = SplitN("t$users|abc123", "|", 2)
-//	ID      = "t$users|abc123"   // full key → Bleve document ID (globally unique across tables)
-//	store   = "users"            // TrimPrefix(parts[0], "t$") → bucket label inside the document
+//	ID      = "users|abc123"     // TrimPrefix(full key, "t$") → Bleve document ID
+//	store   = "users"            // parts[0] from stripped ID → bucket label inside the document
 //
-// Using the full key as the document ID prevents two tables that share a record ID
-// (e.g. "users|abc123" and "orders|abc123") from overwriting each other in the index.
+// Using the stripped key (e.g. "users|abc123") as the document ID ensures that
+// documents are indexed correctly without the internal "t$" prefix, while
+// still being unique across different tables.
 // The stripped table name is stored as the "bucket" field so results can later be
 // filtered or grouped by table.
 //
@@ -143,7 +144,7 @@ func ReIndex(name, indexInitFilePath string, provider ProviderStore, index Index
 		count++
 
 		timeToUpdate := time.Since(lastUpdate) >= time.Minute
-		if batchSize > 0 && (count%batchSize == 0 || timeToUpdate) {
+		if batchSize > 0 && (count > 0 && count%batchSize == 0 || timeToUpdate) {
 			if batch.Size() > 0 {
 				if err := index.Batch(batch); err != nil {
 					return err
@@ -153,7 +154,7 @@ func ReIndex(name, indexInitFilePath string, provider ProviderStore, index Index
 				lastUpdate = time.Now()
 				batch = index.BatchIndex()
 			}
-		} else if batchSize <= 0 && (processedInBatch >= 100 || timeToUpdate) {
+		} else if batchSize <= 0 && (processedInBatch >= 1000 || timeToUpdate) {
 			bar.Add(processedInBatch)
 			processedInBatch = 0
 			lastUpdate = time.Now()

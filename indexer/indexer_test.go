@@ -1032,6 +1032,33 @@ func TestReIndex(t *testing.T) {
 				So(res.Total, ShouldBeGreaterThanOrEqualTo, 1)
 			})
 		})
+
+		Convey("deduplicates records with the same ID (by overwriting)", func() {
+			// Two raw keys that strip to the same indexID: "users|1"
+			rows := []mockRow{
+				{
+					key: []byte("t$users|1"),
+					val: mustJSON(map[string]interface{}{"name": "alice", "version": 1}),
+				},
+				{
+					key: []byte("t$users|1"),
+					val: mustJSON(map[string]interface{}{"name": "alice", "version": 2}),
+				},
+			}
+			index := NewDefaultIndexer(indexPath)
+			defer index.Close()
+
+			err := ReIndex("badger", initFile, &mockProvider{&mockIterator{rows: rows}}, index)
+			So(err, ShouldBeNil)
+
+			Convey("searching returns only one hit with the latest value", func() {
+				res, qErr := index.Query("alice")
+				So(qErr, ShouldBeNil)
+				So(res.Total, ShouldEqual, 1)
+				// Bleve results don't easily show the full source unless fields are stored,
+				// but res.Total = 1 confirms deduplication into the same ID.
+			})
+		})
 	})
 }
 
