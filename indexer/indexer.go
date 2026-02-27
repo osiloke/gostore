@@ -108,51 +108,57 @@ func ReIndex(name, indexInitFilePath string, provider ProviderStore, index Index
 		key := iter.Key()
 		val := iter.Value()
 		processedInBatch++
+
 		var v map[string]interface{}
-		if err := jiter.Unmarshal(val, &v); err == nil {
-			k := string(key)
-			// Use the full key as the document ID to prevent cross-store index overwriting
-			indexID := strings.TrimPrefix(k, defaultTablePrefix)
-			u := strings.SplitN(indexID, "|", 2)
-			store := u[0]
-			var d interface{}
-			if ix, ok := index.(*GeoIndexer); ok {
-				geoDoc := map[string]interface{}{"bucket": store, "data": v}
-				if vv, ok := v["_"+ix.Field]; ok {
-					geoDoc[ix.Field] = vv
-				}
-				d = geoDoc
-			} else {
-				d = IndexedData{store, v}
+		if err := jiter.Unmarshal(val, &v); err != nil {
+			logger.Warn("failed to unmarshal value", "key", string(key), "value", string(val))
+			iter.Next()
+			continue
+		}
+
+		k := string(key)
+		// Use the full key as the document ID to prevent cross-store index overwriting
+		indexID := strings.TrimPrefix(k, defaultTablePrefix)
+		u := strings.SplitN(indexID, "|", 2)
+		store := u[0]
+
+		var d interface{}
+		if ix, ok := index.(*GeoIndexer); ok {
+			geoDoc := map[string]interface{}{"bucket": store, "data": v}
+			if vv, ok := v["_"+ix.Field]; ok {
+				geoDoc[ix.Field] = vv
 			}
-			if batchSize > 0 {
-				batch.Index(indexID, d)
-			} else {
-				if err := index.IndexDocument(indexID, d); err != nil {
+			d = geoDoc
+		} else {
+			d = IndexedData{store, v}
+		}
+
+		if batchSize > 0 {
+			batch.Index(indexID, d)
+		} else {
+			if err := index.IndexDocument(indexID, d); err != nil {
+				return err
+			}
+		}
+		count++
+
+		timeToUpdate := time.Since(lastUpdate) >= time.Minute
+		if batchSize > 0 && (count%batchSize == 0 || timeToUpdate) {
+			if batch.Size() > 0 {
+				if err := index.Batch(batch); err != nil {
 					return err
 				}
-			}
-			count++
-			if batchSize > 0 {
-				if count%batchSize == 0 || time.Since(lastUpdate) >= time.Minute {
-					if batch.Size() > 0 {
-						if err := index.Batch(batch); err != nil {
-							return err
-						}
-						bar.Add(processedInBatch)
-						processedInBatch = 0
-						lastUpdate = time.Now()
-						batch = index.BatchIndex()
-					}
-				}
-			} else if time.Since(lastUpdate) >= time.Minute {
 				bar.Add(processedInBatch)
 				processedInBatch = 0
 				lastUpdate = time.Now()
+				batch = index.BatchIndex()
 			}
-		} else {
-			logger.Warn("failed to unmarshal value", "key", string(key), "value", string(val))
+		} else if batchSize <= 0 && (processedInBatch >= 100 || timeToUpdate) {
+			bar.Add(processedInBatch)
+			processedInBatch = 0
+			lastUpdate = time.Now()
 		}
+
 		iter.Next()
 	}
 	if batchSize > 0 && batch.Size() > 0 {
