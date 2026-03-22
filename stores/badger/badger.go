@@ -752,6 +752,10 @@ func (s *BadgerStore) _Save(key, store string, data []byte) error {
 //
 // Note: Make sure to handle errors appropriately when using the returned ObjectRows
 // and ensure the BadgerDB database is properly initialized and closed.
+//
+// Deprecated: All() is inefficient for large datasets as it loads all results into memory.
+// Use AllCursor() instead, which streams results using a producer-consumer pattern.
+
 func (s *BadgerStore) All(count int, skip int, store string) (common.ObjectRows, error) {
 	var objs [][][]byte
 	err := s.Db.View(func(txn *badgerdb.Txn) error {
@@ -1511,7 +1515,6 @@ func (s *BadgerStore) BatchUpdate(id []interface{}, data []interface{}, store st
 				return err
 			}
 			indexedData := map[string]interface{}{"bucket": store, "data": src}
-			s.Logger.Debug("BatchInsert", "row", indexedData)
 			b.Index(indexKey, indexedData)
 		}
 		return s.Indexer.Batch(b)
@@ -1553,7 +1556,6 @@ func (s *BadgerStore) BatchInsert(data []interface{}, store string, opts common.
 			return nil, err
 		}
 		indexedData := IndexedData{Bucket: store, Data: src}
-		s.Logger.Debug("BatchInsert", "row", indexedData)
 		b.Index(indexKey, indexedData)
 		keys[i] = key
 	}
@@ -1563,6 +1565,7 @@ func (s *BadgerStore) BatchInsert(data []interface{}, store string, opts common.
 		}
 		return nil, err2
 	}
+	s.Logger.Debug("BatchInsert", "row", len(keys))
 	err = s.Indexer.Batch(b)
 	return
 }
