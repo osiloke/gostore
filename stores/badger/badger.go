@@ -484,11 +484,11 @@ func (s *BadgerStore) CreateDatabase() error {
 // tableWithPrefix returns the key prefix used to namespace all entries belonging
 // to the given table. The resulting key has the form:
 //
-//	<TablePrefix><table>  e.g. "t$users"
+//	<TablePrefix><table><IdSeaparator>  e.g. "t$users|"
 //
 // It is used when iterating or seeking over all rows within a table.
 func (s *BadgerStore) tableWithPrefix(table string) string {
-	return s.KeyFormat.TablePrefix + table
+	return s.KeyFormat.TablePrefix + table + s.KeyFormat.IdSeparator
 }
 
 // tableKey combines a table name and a record ID into an un-prefixed
@@ -508,7 +508,7 @@ func (s *BadgerStore) tableKey(table, id string) string {
 //
 // This key is used for single-record operations such as Get, Save, and Delete.
 func (s *BadgerStore) storedKey(table, id string) string {
-	return s.KeyFormat.TablePrefix + s.tableKey(table, id)
+	return s.tableWithPrefix(table) + id
 }
 
 func (s *BadgerStore) CreateTable(table string, config interface{}) error {
@@ -832,7 +832,7 @@ func (s *BadgerStore) Count(store string) (int64, error) {
 				count++
 			}
 		} else {
-			prefix := []byte(s.tableWithPrefix(store) + s.KeyFormat.IdSeparator)
+			prefix := []byte(s.tableWithPrefix(store))
 			for it.Seek(prefix); it.ValidForPrefix(prefix); it.Next() {
 				count++
 			}
@@ -873,7 +873,7 @@ func (s *BadgerStore) AllCursor(store string) (common.ObjectRows, error) {
 				}
 
 				k := item.KeyCopy(nil)
-				keyParts := bytes.SplitN(k, []byte("|"), 2)
+				keyParts := bytes.SplitN(k, []byte(s.KeyFormat.IdSeparator), 2)
 				if len(keyParts) < 2 {
 					it.Next()
 					continue
@@ -969,6 +969,7 @@ func (s *BadgerStore) Since(id string, count int, skip int, store string) (commo
 // Before Get all recent items from a key
 func (s *BadgerStore) Before(id string, count int, skip int, store string) (common.ObjectRows, error) {
 	var objs [][][]byte
+	prefix := []byte(s.tableWithPrefix(store))
 	err := s.Db.View(func(txn *badgerdb.Txn) error {
 		opts := badgerdb.DefaultIteratorOptions
 		opts.PrefetchSize = 10
@@ -978,6 +979,11 @@ func (s *BadgerStore) Before(id string, count int, skip int, store string) (comm
 		for it.Seek([]byte(s.storedKey(store, id))); it.Valid(); it.Next() {
 			item := it.Item()
 			k := item.Key()
+
+			// STAY WITHIN THE TABLE: Stop if we move into the previous table
+			if !bytes.HasPrefix(k, prefix) {
+				break
+			}
 			obj := make([][]byte, 2)
 			err := item.Value(func(v []byte) error {
 				obj[1] = append([]byte{}, v...)
@@ -1210,7 +1216,7 @@ func (s *BadgerStore) FilterGet(filter map[string]interface{}, store string, dst
 			s.Logger.Info("FilterGet empty result", "store", store, "query", q)
 			return common.ErrNotFound
 		}
-		idParts := strings.Split(res.Hits[0].ID, "|")
+		idParts := strings.Split(res.Hits[0].ID, s.KeyFormat.IdSeparator)
 		shortID := res.Hits[0].ID
 		if len(idParts) > 1 {
 			shortID = idParts[1]
@@ -1243,7 +1249,7 @@ func (s *BadgerStore) FilterGetTX(filter map[string]interface{}, store string, d
 			return common.ErrNotFound
 		}
 		key := res.Hits[0].ID
-		idParts := strings.Split(key, "|")
+		idParts := strings.Split(key, s.KeyFormat.IdSeparator)
 		shortID := key
 		if len(idParts) > 1 {
 			shortID = idParts[1]
@@ -1424,7 +1430,7 @@ func (s *BadgerStore) FilterDelete(query map[string]interface{}, store string, o
 			return common.ErrNotFound
 		}
 		for _, v := range res.Hits {
-			idParts := strings.Split(v.ID, "|")
+			idParts := strings.Split(v.ID, s.KeyFormat.IdSeparator)
 			shortID := v.ID
 			if len(idParts) > 1 {
 				shortID = idParts[1]
