@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -61,11 +62,22 @@ func writeCSV(data []map[string]interface{}, filename string) error {
 	writer := csv.NewWriter(file)
 	defer writer.Flush()
 
-	// Write CSV header
-	header := make([]string, 0, len(data[0]))
-	for key := range data[0] {
+	// Dynamically build header from all rows to handle varying structures
+	headerMap := make(map[string]bool)
+	for _, row := range data {
+		for key := range row {
+			headerMap[key] = true
+		}
+	}
+
+	// Convert map keys to sorted slice for consistent column order
+	header := make([]string, 0, len(headerMap))
+	for key := range headerMap {
 		header = append(header, key)
 	}
+	sort.Strings(header)
+
+	// Write CSV header
 	if err := writer.Write(header); err != nil {
 		return err
 	}
@@ -129,7 +141,7 @@ var dbListCmd = &cobra.Command{
 		}
 		defer db.Close()
 
-		rows, err := db.All(dbCount, 0, dbStore)
+		rows, err := db.AllCursor(dbStore)
 		if err != nil {
 			return fmt.Errorf("error retrieving records: %v", err)
 		}
@@ -147,6 +159,9 @@ var dbListCmd = &cobra.Command{
 				continue
 			}
 			jrows = append(jrows, d)
+			if dbCount > 0 && len(jrows) >= dbCount {
+				break
+			}
 		}
 
 		if len(jrows) == 0 {
@@ -456,8 +471,22 @@ var dbPrefixesCmd = &cobra.Command{
 	},
 }
 
+var (
+	// VERSION is set at build time via ldflags
+	VERSION = "dev"
+)
+
+var versionCmd = &cobra.Command{
+	Use:   "version",
+	Short: "Print the version number",
+	Run: func(cmd *cobra.Command, args []string) {
+		fmt.Println(VERSION)
+	},
+}
+
 func init() {
 	RootCmd.AddCommand(dbCmd)
+	RootCmd.AddCommand(versionCmd)
 
 	// Local flags for db and all subcommands
 	dbCmd.PersistentFlags().StringVarP(&dbPath, "path", "p", "./db", "path to gostore data folder")
@@ -476,7 +505,7 @@ func init() {
 	dbCmd.AddCommand(dbFindCmd)
 
 	// Subcommand specific flags
-	dbListCmd.Flags().IntVarP(&dbCount, "count", "c", 1000, "maximum number of rows to return")
+	dbListCmd.Flags().IntVarP(&dbCount, "count", "c", -1, "maximum number of rows to return (-1 for all)")
 	dbListCmd.Flags().StringVarP(&dbOutput, "output", "o", "json", "output format: json or csv")
 
 	dbCreateCmd.Flags().StringVarP(&dbData, "data", "d", "", "JSON data to create")
