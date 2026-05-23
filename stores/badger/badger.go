@@ -424,6 +424,8 @@ func NewWithIndex(root, index string, indexMapping mapping.IndexMapping, indexOp
 	if err != nil {
 		return
 	}
+	s.Logger.Debug("opened badger store with indexer", "root", root, "index", index, "reIndex", reIndex)
+
 	if reIndex {
 		ixj, _ := json.Marshal(ix.Index().Mapping())
 		s.Logger.Debug("reindex db", "mapping", string(ixj))
@@ -431,9 +433,11 @@ func NewWithIndex(root, index string, indexMapping mapping.IndexMapping, indexOp
 		if s.ReIndexBatchSize > 0 {
 			reindexOpts = append(reindexOpts, indexer.WithBatchSize(s.ReIndexBatchSize))
 		}
+		s.Logger.Debug("starting reindex", "batchSize", s.ReIndexBatchSize)
 		if err = indexer.ReIndex(index, indexInitFilePath, s, ix, reindexOpts...); err != nil {
 			return
 		}
+		s.Logger.Debug("reindex completed successfully")
 	}
 	s.IndexType = index
 	s.IndexPath = indexPath
