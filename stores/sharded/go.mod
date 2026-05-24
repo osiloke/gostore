@@ -1,6 +1,6 @@
 module github.com/osiloke/gostore/stores/sharded
 
-go 1.24.0
+go 1.25.0
 
 replace github.com/osiloke/gostore/common => ../../common
 
@@ -17,9 +17,9 @@ require (
 )
 
 require (
-	dario.cat/mergo v1.0.0 // indirect
+	dario.cat/mergo v1.0.2 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
-	github.com/mattn/go-isatty v0.0.20 // indirect
-	github.com/rs/zerolog v1.34.0 // indirect
-	golang.org/x/sys v0.34.0 // indirect
+	github.com/mattn/go-isatty v0.0.22 // indirect
+	github.com/rs/zerolog v1.35.1 // indirect
+	golang.org/x/sys v0.45.0 // indirect
 )
