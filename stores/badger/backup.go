@@ -39,6 +39,7 @@ func (s *BadgerStore) WriteToHTTP(w http.ResponseWriter, r *http.Request) error 
 
 	stream := s.Db.NewStream()
 	stream.NumGo = numGo
+	stream.SinceTs = since
 
 	nextSince, err := stream.Backup(w, since)
 	if err != nil {
