@@ -164,7 +164,7 @@ func (s PostgresObjectStore) CreateTable(store string, config interface{}) (err 
 			if err != nil {
 				return err
 			}
-			plan, err := diff.Generate(ctx, pool,
+			plan, err := diff.Generate(ctx, diff.DBSchemaSource(pool),
 				diff.DDLSchemaSource([]string{schema}),
 				diff.WithTempDbFactory(tempDbFactory),
 			)
