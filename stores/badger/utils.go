@@ -34,6 +34,10 @@ func (l *defaultLog) Debugf(f string, v ...interface{}) {
 	l.Debug(fmt.Sprintf(f, v...))
 }
 
+// OptionModifier is an optional function that can be set by consumers to modify the
+// badgerdb.Options before the database is opened.
+var OptionModifier func(opts badgerdb.Options) badgerdb.Options
+
 func BadgerDefaultOptions(path string) badgerdb.Options {
 	opt := badgerdb.DefaultOptions(path)
 	// .WithCompression(options.ZSTD)
@@ -41,12 +45,18 @@ func BadgerDefaultOptions(path string) badgerdb.Options {
 	opt.Logger = defaultLogger()
 	// opt.SyncWrites = true
 	// opt.MaxLevels = 3
+	if OptionModifier != nil {
+		opt = OptionModifier(opt)
+	}
 	return opt
 }
 
 func BadgerRestoreOptions(path string) badgerdb.Options {
 	opt := badgerdb.DefaultOptions(path).WithNumVersionsToKeep(math.MaxInt32)
 	opt.Logger = defaultLogger()
+	if OptionModifier != nil {
+		opt = OptionModifier(opt)
+	}
 	return opt
 }
 func valForPath(key string, s interface{}) (v interface{}, err error) {
@@ -68,14 +78,14 @@ func getPath(key string, s interface{}) (v interface{}, err error) {
 		i  int64
 		ok bool
 	)
-	switch s.(type) {
+	switch s := s.(type) {
 	case map[string]interface{}:
-		if v, ok = s.(map[string]interface{})[key]; !ok {
+		if v, ok = s[key]; !ok {
 			err = fmt.Errorf("Key not present. [Key:%s]", key)
 		}
 	case []interface{}:
 		if i, err = strconv.ParseInt(key, 10, 64); err == nil {
-			array := s.([]interface{})
+			array := s
 			if int(i) < len(array) {
 				v = array[i]
 			} else {

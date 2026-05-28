@@ -60,6 +60,13 @@ func WithLogger(logger log.Logger) StoreOpt {
 	}
 }
 
+// WithOptionsModifier allows customizing badgerdb.Options before opening the database.
+func WithOptionsModifier(modifier func(opts badgerdb.Options) badgerdb.Options) StoreOpt {
+	return func(s *BadgerStore) {
+		s.optionsModifier = modifier
+	}
+}
+
 // BadgerStore gostore implementation that used badgerdb
 type BadgerStore struct {
 	Bucket           []byte
@@ -76,6 +83,7 @@ type BadgerStore struct {
 	KeyFormat        KeyFormat
 	ReIndexBatchSize int
 	Logger           log.Logger
+	optionsModifier  func(opts badgerdb.Options) badgerdb.Options
 }
 
 // IndexedData represents a stored row
@@ -141,15 +149,8 @@ func NewDBOnly(dbPath string, opts ...StoreOpt) (s *BadgerStore, err error) {
 		return nil, common.ErrDatabaseLocked
 	}
 
-	opt := BadgerDefaultOptions(dbPath)
-	db, err := badgerdb.Open(opt)
-	if err != nil {
-		log.New("gostore-contrib.badger").Error("unable to create badgerdb", "err", err.Error(), "opt", opt)
-		return
-	}
 	s = &BadgerStore{
 		Bucket:      []byte("_default"),
-		Db:          db,
 		Path:        dbPath,
 		Indexer:     nil,
 		tableConfig: make(map[string]*TableConfig),
@@ -162,6 +163,19 @@ func NewDBOnly(dbPath string, opts ...StoreOpt) (s *BadgerStore, err error) {
 	for _, opt := range opts {
 		opt(s)
 	}
+
+	opt := BadgerDefaultOptions(dbPath)
+	if s.optionsModifier != nil {
+		opt = s.optionsModifier(opt)
+	}
+
+	db, err := badgerdb.Open(opt)
+	if err != nil {
+		s.Logger.Error("unable to create badgerdb", "err", err.Error(), "opt", opt)
+		return nil, err
+	}
+	s.Db = db
+
 	s.setupTicker()
 	return
 }
@@ -183,15 +197,9 @@ func NewRestorable(root string, opts ...StoreOpt) (s *BadgerStore, err error) {
 	if _, err := os.Stat(filepath.Join(dbPath, "LOCK")); err == nil {
 		return nil, common.ErrDatabaseLocked
 	}
-	opt := BadgerRestoreOptions(dbPath)
-	db, err := badgerdb.Open(opt)
-	if err != nil {
-		log.New("gostore-contrib.badger").Error("unable to create badgerdb for restore", "err", err.Error(), "opt", opt)
-		return
-	}
+
 	s = &BadgerStore{
 		Bucket:      []byte("_default"),
-		Db:          db,
 		Path:        dbPath,
 		Indexer:     nil, // Explicitly no indexer for restore
 		tableConfig: make(map[string]*TableConfig),
@@ -199,11 +207,24 @@ func NewRestorable(root string, opts ...StoreOpt) (s *BadgerStore, err error) {
 			TablePrefix: "t$",
 			IdSeparator: "|",
 		},
-		Logger: log.New("gostore-contrib.badger"),
+		Logger: l,
 	}
 	for _, opt := range opts {
 		opt(s)
 	}
+
+	opt := BadgerRestoreOptions(dbPath)
+	if s.optionsModifier != nil {
+		opt = s.optionsModifier(opt)
+	}
+
+	db, err := badgerdb.Open(opt)
+	if err != nil {
+		s.Logger.Error("unable to create badgerdb for restore", "err", err.Error(), "opt", opt)
+		return nil, err
+	}
+	s.Db = db
+
 	// No ticker setup during restore
 	return
 }
@@ -225,24 +246,10 @@ func New(root string, opts ...StoreOpt) (s *BadgerStore, err error) {
 		return nil, common.ErrDatabaseLocked
 	}
 
-	opt := BadgerDefaultOptions(dbPath)
-	// opt.SyncWrites = true
-	db, err := badgerdb.Open(opt)
-	if err != nil {
-		log.New("gostore-contrib.badger").Error("unable to create badgerdb", "err", err.Error(), "opt", opt)
-		return
-	}
-	indexMapping := bleve.NewIndexMapping()
-	indexMapping.IndexDynamic = false
-	indexMapping.StoreDynamic = false
-	index := indexer.NewIndexer(indexPath, indexMapping)
 	s = &BadgerStore{
 		Bucket:       []byte("_default"),
-		Db:           db,
 		Path:         dbPath,
-		Indexer:      index,
 		IndexPath:    indexPath,
-		IndexMapping: indexMapping,
 		IndexType:    "bleve",
 		tableConfig:  make(map[string]*TableConfig),
 		KeyFormat: KeyFormat{
@@ -254,6 +261,26 @@ func New(root string, opts ...StoreOpt) (s *BadgerStore, err error) {
 	for _, opt := range opts {
 		opt(s)
 	}
+
+	opt := BadgerDefaultOptions(dbPath)
+	if s.optionsModifier != nil {
+		opt = s.optionsModifier(opt)
+	}
+
+	db, err := badgerdb.Open(opt)
+	if err != nil {
+		s.Logger.Error("unable to create badgerdb", "err", err.Error(), "opt", opt)
+		return nil, err
+	}
+	s.Db = db
+
+	indexMapping := bleve.NewIndexMapping()
+	indexMapping.IndexDynamic = false
+	indexMapping.StoreDynamic = false
+	index := indexer.NewIndexer(indexPath, indexMapping)
+	s.Indexer = index
+	s.IndexMapping = indexMapping
+
 	s.setupTicker()
 	return
 }
@@ -315,15 +342,8 @@ func NewWithIndexer(root string, index indexer.Indexer, opts ...StoreOpt) (s *Ba
 		return nil, common.ErrDatabaseLocked
 	}
 
-	opt := BadgerDefaultOptions(dbPath)
-	db, err := badgerdb.Open(opt)
-	if err != nil {
-		l.Error("unable to create badgerdb", "err", err.Error(), "opt", opt)
-		return
-	}
 	s = &BadgerStore{
 		Bucket:      []byte("_default"),
-		Db:          db,
 		Path:        dbPath,
 		Indexer:     index,
 		tableConfig: make(map[string]*TableConfig),
@@ -336,6 +356,19 @@ func NewWithIndexer(root string, index indexer.Indexer, opts ...StoreOpt) (s *Ba
 	for _, opt := range opts {
 		opt(s)
 	}
+
+	opt := BadgerDefaultOptions(dbPath)
+	if s.optionsModifier != nil {
+		opt = s.optionsModifier(opt)
+	}
+
+	db, err := badgerdb.Open(opt)
+	if err != nil {
+		l.Error("unable to create badgerdb", "err", err.Error(), "opt", opt)
+		return nil, err
+	}
+	s.Db = db
+
 	s.setupTicker()
 	//	e.CreateBucket(bucket)
 	return
