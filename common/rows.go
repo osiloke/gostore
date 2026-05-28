@@ -64,7 +64,7 @@ func (s *CursorRows) NextKV() ([][]byte, error) {
 		s.ci++
 		s.mu.Unlock()
 		return row, nil
-	case <-time.After(5 * time.Second): // A simple timeout to prevent waiting forever on a stalled producer.
+	case <-time.After(2 * time.Minute): // A generous timeout to prevent waiting forever on a stalled producer under high load.
 		s.SetLastError(ErrTimeout)
 		return nil, ErrTimeout
 	}
