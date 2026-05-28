@@ -379,6 +379,8 @@ var indexFilenamePrefix = map[string]string{
 	"moss":        "moss_",
 	"moss-scorch": "moss_scorch_",
 	"geo-moss":    "geo_moss_",
+	"scorch":      "scorch_",
+	"geo-scorch":  "geo_scorch_",
 }
 
 // NewWithIndex New badger store with indexer
@@ -441,10 +443,14 @@ func NewWithIndex(root, index string, indexMapping mapping.IndexMapping, indexOp
 		ix, _ = indexer.NewMemIndexerWithMapping(indexPath, indexMapping)
 	case "moss-scorch":
 		ix, _ = indexer.NewMossScorchIndexerWithMapping(indexPath, indexMapping)
+	case "scorch":
+		ix = indexer.NewIndexer(indexPath, indexMapping)
 	case "moss":
 		ix, _ = indexer.NewMossIndexer(indexPath)
 	case "geo-moss":
 		ix, _ = indexer.NewMossIndexerWithMapping(indexPath, indexMapping)
+	case "geo-scorch":
+		ix, _ = indexer.NewScorchIndexerWithMapping(indexPath, indexMapping)
 	default:
 		ix = indexer.NewIndexer(indexPath, indexMapping)
 	}
@@ -495,10 +501,14 @@ func (s *BadgerStore) ReopenIndex() error {
 		ix, _ = indexer.NewMemIndexerWithMapping(s.IndexPath, s.IndexMapping)
 	case "moss-scorch":
 		ix, _ = indexer.NewMossScorchIndexerWithMapping(s.IndexPath, s.IndexMapping)
+	case "scorch":
+		ix = indexer.NewIndexer(s.IndexPath, s.IndexMapping)
 	case "moss":
 		ix, _ = indexer.NewMossIndexer(s.IndexPath)
 	case "geo-moss":
 		ix, _ = indexer.NewMossIndexerWithMapping(s.IndexPath, s.IndexMapping)
+	case "geo-scorch":
+		ix, _ = indexer.NewScorchIndexerWithMapping(s.IndexPath, s.IndexMapping)
 	default:
 		ix = indexer.NewIndexer(s.IndexPath, s.IndexMapping)
 	}
