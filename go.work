@@ -12,6 +12,7 @@ use (
 	./stores/postgres
 	./stores/progressive
 	./stores/sharded
+	./stores/redis
 	./testing
 	./worker
 )
