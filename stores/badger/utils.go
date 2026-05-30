@@ -27,11 +27,11 @@ func (l *defaultLog) Warningf(f string, v ...interface{}) {
 }
 
 func (l *defaultLog) Infof(f string, v ...interface{}) {
-	l.Info(fmt.Sprintf(f, v...))
+	// Suppressed to avoid polluting logs
 }
 
 func (l *defaultLog) Debugf(f string, v ...interface{}) {
-	l.Debug(fmt.Sprintf(f, v...))
+	// Suppressed to avoid polluting logs
 }
 
 // OptionModifier is an optional function that can be set by consumers to modify the

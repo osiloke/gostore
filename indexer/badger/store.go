@@ -36,6 +36,24 @@ const (
 	Name = "badger"
 )
 
+type badgerLogger struct{}
+
+func (l *badgerLogger) Errorf(f string, v ...interface{}) {
+	log.Error(fmt.Sprintf(f, v...))
+}
+
+func (l *badgerLogger) Warningf(f string, v ...interface{}) {
+	log.Warn(fmt.Sprintf(f, v...))
+}
+
+func (l *badgerLogger) Infof(f string, v ...interface{}) {
+	// Suppressed to avoid polluting logs
+}
+
+func (l *badgerLogger) Debugf(f string, v ...interface{}) {
+	// Suppressed to avoid polluting logs
+}
+
 type Store struct {
 	path string
 	db   *badger.DB
@@ -53,6 +71,7 @@ func New(mo store.MergeOperator, config map[string]interface{}) (store.KVStore, 
 	}
 
 	opt := badger.DefaultOptions(path)
+	opt.Logger = &badgerLogger{}
 
 	if cdir, ok := config["create_if_missing"].(bool); ok && cdir {
 		if _, err := os.Stat(path); os.IsNotExist(err) {

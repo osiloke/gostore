@@ -35,9 +35,22 @@ import (
 
 var (
 	dbPath, dbType, dbStore, dbOutput string
-	dbData, dbDataFile                string
+	dbData, dbDataFile, dbGroupBy     string
 	dbCount                           int
 )
+
+func getNestedValue(data map[string]interface{}, path string) interface{} {
+	parts := strings.Split(path, ".")
+	var current interface{} = data
+	for _, part := range parts {
+		if m, ok := current.(map[string]interface{}); ok {
+			current = m[part]
+		} else {
+			return nil
+		}
+	}
+	return current
+}
 
 func getStore(name, path string) (gostore.ObjectStore, error) {
 	switch strings.ToUpper(name) {
@@ -303,7 +316,7 @@ var dbDeleteCmd = &cobra.Command{
 var dbCountCmd = &cobra.Command{
 	Use:   "count [store]",
 	Short: "Count keys in a store or the whole database",
-	Long:  `Count keys in a store or the whole database. If a store name is provided, only keys in that store are counted.`,
+	Long:  `Count keys in a store or the whole database. If a store name is provided, only keys in that store are counted. Supports grouping by a field path using --group-by when a store is specified.`,
 	Args:  cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		db, err := getStore(dbType, dbPath)
@@ -325,17 +338,118 @@ var dbCountCmd = &cobra.Command{
 		}
 
 		if targetStore != "" {
+			if dbGroupBy != "" {
+				fmt.Printf("Counting keys in store %s grouped by %q...\n", targetStore, dbGroupBy)
+				rows, err := db.AllCursor(targetStore)
+				if err != nil {
+					return fmt.Errorf("error opening cursor: %v", err)
+				}
+				defer rows.Close()
+
+				groups := make(map[string]int64)
+				var total int64
+				for {
+					b, ok := rows.NextRaw()
+					if !ok {
+						break
+					}
+					var doc map[string]interface{}
+					if err := json.Unmarshal(b, &doc); err != nil {
+						groups["<invalid json>"]++
+						total++
+						continue
+					}
+					val := getNestedValue(doc, dbGroupBy)
+					var valStr string
+					if val == nil {
+						valStr = "<nil>"
+					} else {
+						valStr = fmt.Sprintf("%v", val)
+					}
+					groups[valStr]++
+					total++
+				}
+
+				fmt.Println()
+				fmt.Printf("+------------------------------------------+------------+\n")
+				fmt.Printf("| Value (%-32s) | Key Count  |\n", dbGroupBy)
+				fmt.Printf("+------------------------------------------+------------+\n")
+				var sortedKeys []string
+				for k := range groups {
+					sortedKeys = append(sortedKeys, k)
+				}
+				sort.Strings(sortedKeys)
+				for _, k := range sortedKeys {
+					fmt.Printf("| %-40s | %10d |\n", k, groups[k])
+				}
+				fmt.Printf("+------------------------------------------+------------+\n")
+				fmt.Printf("| %-40s | %10d |\n", "Total Keys", total)
+				fmt.Printf("+------------------------------------------+------------+\n")
+				return nil
+			}
+
 			fmt.Printf("Counting keys in store %s...\n", targetStore)
-		} else {
-			fmt.Println("Counting all keys in database...")
+			count, err := store.Count(targetStore)
+			if err != nil {
+				return fmt.Errorf("error counting keys: %v", err)
+			}
+			fmt.Printf("Total keys: %d\n", count)
+			return nil
 		}
 
-		count, err := store.Count(targetStore)
+		fmt.Println("Counting keys across all stores...")
+		storeCounts := make(map[string]int64)
+		var otherCount int64
+		var total int64
+
+		err = store.Db.View(func(txn *badgerdb.Txn) error {
+			opts := badgerdb.DefaultIteratorOptions
+			opts.PrefetchValues = false
+			it := txn.NewIterator(opts)
+			defer it.Close()
+
+			prefix := store.KeyFormat.TablePrefix
+			separator := store.KeyFormat.IdSeparator
+			for it.Rewind(); it.Valid(); it.Next() {
+				key := string(it.Item().Key())
+				if strings.HasPrefix(key, prefix) {
+					trimmed := strings.TrimPrefix(key, prefix)
+					idx := strings.Index(trimmed, separator)
+					if idx != -1 {
+						tableName := trimmed[:idx]
+						storeCounts[tableName]++
+					} else {
+						otherCount++
+					}
+				} else {
+					otherCount++
+				}
+				total++
+			}
+			return nil
+		})
 		if err != nil {
-			return fmt.Errorf("error counting keys: %v", err)
+			return fmt.Errorf("error scanning keys: %v", err)
 		}
 
-		fmt.Printf("Total keys: %d\n", count)
+		fmt.Println()
+		fmt.Printf("+------------------------------------------+------------+\n")
+		fmt.Printf("| Store (Table)                            | Key Count  |\n")
+		fmt.Printf("+------------------------------------------+------------+\n")
+		var sortedStores []string
+		for k := range storeCounts {
+			sortedStores = append(sortedStores, k)
+		}
+		sort.Strings(sortedStores)
+		for _, s := range sortedStores {
+			fmt.Printf("| %-40s | %10d |\n", s, storeCounts[s])
+		}
+		if otherCount > 0 {
+			fmt.Printf("| %-40s | %10d |\n", "[System / Index / Other]", otherCount)
+		}
+		fmt.Printf("+------------------------------------------+------------+\n")
+		fmt.Printf("| %-40s | %10d |\n", "Total Keys", total)
+		fmt.Printf("+------------------------------------------+------------+\n")
 		return nil
 	},
 }
@@ -507,6 +621,8 @@ func init() {
 	// Subcommand specific flags
 	dbListCmd.Flags().IntVarP(&dbCount, "count", "c", -1, "maximum number of rows to return (-1 for all)")
 	dbListCmd.Flags().StringVarP(&dbOutput, "output", "o", "json", "output format: json or csv")
+
+	dbCountCmd.Flags().StringVarP(&dbGroupBy, "group-by", "g", "", "group record counts by a specific JSON field path (nested supported with dot-notation)")
 
 	dbCreateCmd.Flags().StringVarP(&dbData, "data", "d", "", "JSON data to create")
 	dbCreateCmd.Flags().StringVarP(&dbDataFile, "file", "f", "", "path to JSON file with data")

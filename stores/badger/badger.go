@@ -152,7 +152,7 @@ func NewDBOnly(dbPath string, opts ...StoreOpt) (s *BadgerStore, err error) {
 	s = &BadgerStore{
 		Bucket:      []byte("_default"),
 		Path:        dbPath,
-		Indexer:     nil,
+		Indexer:     &indexer.NoOpIndexer{},
 		tableConfig: make(map[string]*TableConfig),
 		KeyFormat: KeyFormat{
 			TablePrefix: "t$",
@@ -201,7 +201,7 @@ func NewRestorable(root string, opts ...StoreOpt) (s *BadgerStore, err error) {
 	s = &BadgerStore{
 		Bucket:      []byte("_default"),
 		Path:        dbPath,
-		Indexer:     nil, // Explicitly no indexer for restore
+		Indexer:     &indexer.NoOpIndexer{}, // Explicitly no indexer for restore (using no-op)
 		tableConfig: make(map[string]*TableConfig),
 		KeyFormat: KeyFormat{
 			TablePrefix: "t$",
