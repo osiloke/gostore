@@ -12,6 +12,7 @@ require (
 	github.com/schollz/progressbar/v3 v3.18.0
 	github.com/smartystreets/goconvey v1.8.1
 	github.com/stretchr/testify v1.11.1
+	golang.org/x/sync v0.20.0
 )
 
 require (
@@ -63,7 +64,6 @@ require (
 	github.com/smarty/assertions v1.15.0 // indirect
 	go.etcd.io/bbolt v1.4.0 // indirect
 	golang.org/x/net v0.54.0 // indirect
-	golang.org/x/sync v0.20.0 // indirect
 	golang.org/x/sys v0.45.0 // indirect
 	golang.org/x/term v0.43.0 // indirect
 	google.golang.org/protobuf v1.36.6 // indirect

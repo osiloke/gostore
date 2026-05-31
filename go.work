@@ -11,8 +11,8 @@ use (
 	./stores/mongodb
 	./stores/postgres
 	./stores/progressive
-	./stores/sharded
 	./stores/redis
+	./stores/sharded
 	./testing
 	./worker
 )
