@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 
 	"os"
@@ -462,28 +463,70 @@ func NewWithIndex(root, index string, indexMapping mapping.IndexMapping, indexOp
 		kvconfig = map[string]interface{}{"unsafe_batch": true}
 	}
 
-	switch index {
-	case "badger":
-		if _, osErr := os.Stat(indexPath); os.IsNotExist(osErr) {
-			os.Mkdir(indexPath, os.FileMode(0700))
-			log.New("gostore-contrib.badger").Debug("made badger db index path", "path", indexPath)
+	// Self-healing recovery block: if the index creation panics (due to index corruption / opening errors),
+	// we intercept it, delete both the corrupt index and the init marker file, set reIndex to true,
+	// and cleanly recreate a fresh empty index inline. The function then naturally falls through to the
+	// reindex block to rebuild the index immediately without panicking or requiring a process restart.
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				err, ok := r.(error)
+				if !ok {
+					err = fmt.Errorf("%v", r)
+				}
+				log.New("gostore-contrib.badger").Error("CRITICAL: Bleve index opening panicked (corruption suspected). Initiating inline self-healing reindex...", "error", err.Error())
+				
+				// Delete corrupt files and flag for full re-indexing
+				os.RemoveAll(indexPath)
+				os.Remove(indexInitFilePath)
+				reIndex = true
+
+				// Re-attempt creating a fresh empty index
+				switch index {
+				case "badger":
+					os.Mkdir(indexPath, os.FileMode(0700))
+					ix = indexer.NewBadgerIndexerWithMapping(indexPath, indexMapping)
+				case "memory":
+					ix, _ = indexer.NewMemIndexerWithMapping(indexPath, indexMapping)
+				case "moss-scorch":
+					ix, _ = indexer.NewMossScorchIndexerWithConfig(indexPath, indexMapping, kvconfig)
+				case "scorch":
+					ix, _ = indexer.NewScorchIndexerWithConfig(indexPath, indexMapping, kvconfig)
+				case "moss":
+					ix, _ = indexer.NewMossIndexer(indexPath)
+				case "geo-moss":
+					ix, _ = indexer.NewMossIndexerWithMapping(indexPath, indexMapping)
+				case "geo-scorch":
+					ix, _ = indexer.NewScorchIndexerWithGeoConfig(indexPath, "_location", indexMapping, kvconfig)
+				default:
+					ix = indexer.NewIndexer(indexPath, indexMapping)
+				}
+			}
+		}()
+
+		switch index {
+		case "badger":
+			if _, osErr := os.Stat(indexPath); os.IsNotExist(osErr) {
+				os.Mkdir(indexPath, os.FileMode(0700))
+				log.New("gostore-contrib.badger").Debug("made badger db index path", "path", indexPath)
+			}
+			ix = indexer.NewBadgerIndexerWithMapping(indexPath, indexMapping)
+		case "memory":
+			ix, _ = indexer.NewMemIndexerWithMapping(indexPath, indexMapping)
+		case "moss-scorch":
+			ix, _ = indexer.NewMossScorchIndexerWithConfig(indexPath, indexMapping, kvconfig)
+		case "scorch":
+			ix, _ = indexer.NewScorchIndexerWithConfig(indexPath, indexMapping, kvconfig)
+		case "moss":
+			ix, _ = indexer.NewMossIndexer(indexPath)
+		case "geo-moss":
+			ix, _ = indexer.NewMossIndexerWithMapping(indexPath, indexMapping)
+		case "geo-scorch":
+			ix, _ = indexer.NewScorchIndexerWithGeoConfig(indexPath, "_location", indexMapping, kvconfig)
+		default:
+			ix = indexer.NewIndexer(indexPath, indexMapping)
 		}
-		ix = indexer.NewBadgerIndexerWithMapping(indexPath, indexMapping)
-	case "memory":
-		ix, _ = indexer.NewMemIndexerWithMapping(indexPath, indexMapping)
-	case "moss-scorch":
-		ix, _ = indexer.NewMossScorchIndexerWithConfig(indexPath, indexMapping, kvconfig)
-	case "scorch":
-		ix, _ = indexer.NewScorchIndexerWithConfig(indexPath, indexMapping, kvconfig)
-	case "moss":
-		ix, _ = indexer.NewMossIndexer(indexPath)
-	case "geo-moss":
-		ix, _ = indexer.NewMossIndexerWithMapping(indexPath, indexMapping)
-	case "geo-scorch":
-		ix, _ = indexer.NewScorchIndexerWithGeoConfig(indexPath, "_location", indexMapping, kvconfig)
-	default:
-		ix = indexer.NewIndexer(indexPath, indexMapping)
-	}
+	}()
 
 	geoIndex := &indexer.GeoIndexer{Field: "_location", Indexer: ix}
 	for _, opt := range indexOpts {
