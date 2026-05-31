@@ -17,7 +17,11 @@ func NewMossScorchIndexer(indexPath string) (Indexer, bool) {
 
 // NewMossScorchIndexerWithMapping creates a new indexer
 func NewMossScorchIndexerWithMapping(indexPath string, indexMapping mapping.IndexMapping) (Indexer, bool) {
-	// os.RemoveAll(indexPath)
+	return NewMossScorchIndexerWithConfig(indexPath, indexMapping, nil)
+}
+
+// NewMossScorchIndexerWithConfig creates a new Moss-Scorch indexer with a specific KV config map
+func NewMossScorchIndexerWithConfig(indexPath string, indexMapping mapping.IndexMapping, kvconfig map[string]interface{}) (Indexer, bool) {
 	index, err := bleve.Open(indexPath)
 	if err != nil {
 		logger.Debug("Error opening MossScorch indexpath", "path", indexPath, "verbose", string(err.Error()))
@@ -25,8 +29,11 @@ func NewMossScorchIndexerWithMapping(indexPath string, indexMapping mapping.Inde
 			logger.Debug(fmt.Sprintf("Creating new MossScorch index at %s ...", indexPath))
 			// indexMapping.DefaultAnalyzer = "keyword"
 
-			kvconfig := map[string]interface{}{
-				"mossLowerLevelStoreName": "mossStore",
+			if kvconfig == nil {
+				kvconfig = map[string]interface{}{}
+			}
+			if _, ok := kvconfig["mossLowerLevelStoreName"]; !ok {
+				kvconfig["mossLowerLevelStoreName"] = "mossStore"
 			}
 
 			index, err = bleve.NewUsing(indexPath, indexMapping, scorch.Name, moss.Name, kvconfig)
@@ -38,8 +45,6 @@ func NewMossScorchIndexerWithMapping(indexPath string, indexMapping mapping.Inde
 				}
 				return nil, false
 			}
-			// time.Sleep(30 * time.Second)
-
 		} else {
 			panic(err)
 		}
@@ -51,15 +56,22 @@ func NewMossScorchIndexerWithMapping(indexPath string, indexMapping mapping.Inde
 
 // NewMossScorchIndexerWithGeoMapping create a geo capable moss indexer
 func NewMossScorchIndexerWithGeoMapping(indexPath, field string, indexMapping mapping.IndexMapping) (Indexer, bool) {
-	// os.RemoveAll(indexPath)
+	return NewMossScorchIndexerWithGeoConfig(indexPath, field, indexMapping, nil)
+}
+
+// NewMossScorchIndexerWithGeoConfig create a geo capable moss indexer with a specific KV config map
+func NewMossScorchIndexerWithGeoConfig(indexPath, field string, indexMapping mapping.IndexMapping, kvconfig map[string]interface{}) (Indexer, bool) {
 	index, err := bleve.Open(indexPath)
 	if err != nil {
 		logger.Debug("Error opening MossScorch indexpath", "path", indexPath, "verbose", string(err.Error()))
 		if err == bleve.ErrorIndexMetaMissing || err == bleve.ErrorIndexPathDoesNotExist {
 			logger.Debug(fmt.Sprintf("Creating new MossScorch index at %s ...", indexPath))
 			// indexMapping.DefaultAnalyzer = "keyword"
-			kvconfig := map[string]interface{}{
-				"mossLowerLevelStoreName": "mossStore",
+			if kvconfig == nil {
+				kvconfig = map[string]interface{}{}
+			}
+			if _, ok := kvconfig["mossLowerLevelStoreName"]; !ok {
+				kvconfig["mossLowerLevelStoreName"] = "mossStore"
 			}
 
 			index, err = bleve.NewUsing(indexPath, indexMapping, scorch.Name, moss.Name, kvconfig)
@@ -71,8 +83,6 @@ func NewMossScorchIndexerWithGeoMapping(indexPath, field string, indexMapping ma
 				}
 				return nil, false
 			}
-			// time.Sleep(30 * time.Second)
-
 		} else {
 			panic(err)
 		}
@@ -81,3 +91,4 @@ func NewMossScorchIndexerWithGeoMapping(indexPath, field string, indexMapping ma
 	logger.Debug("opening existing MossScorch index", "stats", index.Stats())
 	return &GeoIndexer{Field: field, Indexer: &DefaultIndexer{index: index}}, false
 }
+

@@ -6,6 +6,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/blevesearch/bleve/v2"
 	common "github.com/osiloke/gostore/common"
 	. "github.com/smartystreets/goconvey/convey"
 )
@@ -1114,3 +1115,76 @@ func mustJSON(v interface{}) []byte {
 	}
 	return b
 }
+
+func BenchmarkReIndex(b *testing.B) {
+	// Generate 1000 mock rows for a substantial benchmark
+	numRows := 1000
+	rows := make([]mockRow, numRows)
+	for i := 0; i < numRows; i++ {
+		rows[i] = mockRow{
+			key: []byte(fmt.Sprintf("t$users|%d", i)),
+			val: mustJSON(map[string]interface{}{
+				"name":    fmt.Sprintf("user-%d", i),
+				"age":     30,
+				"email":   fmt.Sprintf("user-%d@example.com", i),
+				"active":  true,
+				"balance": 123.45,
+			}),
+		}
+	}
+
+	runBench := func(pb *testing.B, name string, indexFactory func(path string) Indexer, opts ...ReIndexOption) {
+		pb.ResetTimer()
+		for i := 0; i < pb.N; i++ {
+			pb.StopTimer()
+			indexPath := fmt.Sprintf("./test_bench_%s_%d.index", name, i)
+			initFile := fmt.Sprintf("./test_bench_%s_%d.init", name, i)
+			os.RemoveAll(indexPath)
+			os.Remove(initFile)
+
+			index := indexFactory(indexPath)
+			provider := &mockProvider{&mockIterator{rows: rows, pos: 0}}
+			pb.StartTimer()
+
+			err := ReIndex("badger", initFile, provider, index, opts...)
+			if err != nil {
+				pb.Fatal(err)
+			}
+
+			pb.StopTimer()
+			index.Close()
+			os.RemoveAll(indexPath)
+			os.Remove(initFile)
+		}
+	}
+
+	b.Run("Scorch-Sequential-NoBatch", func(subB *testing.B) {
+		runBench(subB, "scorch_seq_nobatch", func(path string) Indexer {
+			ix, _ := NewScorchIndexerWithMapping(path, bleve.NewIndexMapping())
+			return ix
+		})
+	})
+
+	b.Run("Scorch-Sequential-Batch-100", func(subB *testing.B) {
+		runBench(subB, "scorch_seq_batch", func(path string) Indexer {
+			ix, _ := NewScorchIndexerWithMapping(path, bleve.NewIndexMapping())
+			return ix
+		}, WithBatchSize(100))
+	})
+
+	b.Run("Scorch-Parallel-8Workers-Batch-100", func(subB *testing.B) {
+		runBench(subB, "scorch_par_8w", func(path string) Indexer {
+			ix, _ := NewScorchIndexerWithMapping(path, bleve.NewIndexMapping())
+			return ix
+		}, WithWorkers(8), WithBatchSize(100))
+	})
+
+	b.Run("Scorch-Parallel-8Workers-Batch-100-UnsafeBatch", func(subB *testing.B) {
+		runBench(subB, "scorch_par_8w_unsafe", func(path string) Indexer {
+			ix, _ := NewScorchIndexerWithConfig(path, bleve.NewIndexMapping(), map[string]interface{}{"unsafe_batch": true})
+			return ix
+		}, WithWorkers(8), WithBatchSize(100), WithUnsafeBatch(true))
+	})
+}
+
+

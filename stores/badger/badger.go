@@ -54,6 +54,25 @@ func WithReIndexBatchSize(size int) StoreOpt {
 	}
 }
 
+// WithReIndexWorkers is a store option that sets the number of concurrent
+// worker goroutines for re-indexing. Tune this down on memory-constrained
+// instances. Defaults to runtime.NumCPU() if not set.
+func WithReIndexWorkers(count int) StoreOpt {
+	return func(s *BadgerStore) {
+		s.ReIndexWorkers = count
+	}
+}
+
+// WithReIndexUnsafeBatch is a store option that enables unsafe batch mode
+// during re-indexing. When enabled, batches are committed without waiting
+// for disk persistence, providing maximum throughput at the cost of crash
+// safety. Disabled by default.
+func WithReIndexUnsafeBatch(unsafe bool) StoreOpt {
+	return func(s *BadgerStore) {
+		s.ReIndexUnsafeBatch = unsafe
+	}
+}
+
 func WithLogger(logger log.Logger) StoreOpt {
 	return func(s *BadgerStore) {
 		s.Logger = logger
@@ -69,21 +88,23 @@ func WithOptionsModifier(modifier func(opts badgerdb.Options) badgerdb.Options) 
 
 // BadgerStore gostore implementation that used badgerdb
 type BadgerStore struct {
-	Bucket           []byte
-	Db               *badgerdb.DB
-	Path             string
-	Indexer          indexer.Indexer
-	IndexType        string
-	IndexPath        string
-	IndexMapping     mapping.IndexMapping
-	tableConfig      map[string]*TableConfig
-	t                *time.Ticker
-	quit             chan struct{}
-	done             chan bool
-	KeyFormat        KeyFormat
-	ReIndexBatchSize int
-	Logger           log.Logger
-	optionsModifier  func(opts badgerdb.Options) badgerdb.Options
+	Bucket              []byte
+	Db                  *badgerdb.DB
+	Path                string
+	Indexer             indexer.Indexer
+	IndexType           string
+	IndexPath           string
+	IndexMapping        mapping.IndexMapping
+	tableConfig         map[string]*TableConfig
+	t                   *time.Ticker
+	quit                chan struct{}
+	done                chan bool
+	KeyFormat           KeyFormat
+	ReIndexBatchSize    int
+	ReIndexWorkers      int
+	ReIndexUnsafeBatch  bool
+	Logger              log.Logger
+	optionsModifier     func(opts badgerdb.Options) badgerdb.Options
 }
 
 // IndexedData represents a stored row
@@ -432,6 +453,15 @@ func NewWithIndex(root, index string, indexMapping mapping.IndexMapping, indexOp
 			}
 		}
 	}
+	tempStore := &BadgerStore{}
+	for _, opt := range storeOpts {
+		opt(tempStore)
+	}
+	var kvconfig map[string]interface{}
+	if tempStore.ReIndexUnsafeBatch {
+		kvconfig = map[string]interface{}{"unsafe_batch": true}
+	}
+
 	switch index {
 	case "badger":
 		if _, osErr := os.Stat(indexPath); os.IsNotExist(osErr) {
@@ -442,15 +472,15 @@ func NewWithIndex(root, index string, indexMapping mapping.IndexMapping, indexOp
 	case "memory":
 		ix, _ = indexer.NewMemIndexerWithMapping(indexPath, indexMapping)
 	case "moss-scorch":
-		ix, _ = indexer.NewMossScorchIndexerWithMapping(indexPath, indexMapping)
+		ix, _ = indexer.NewMossScorchIndexerWithConfig(indexPath, indexMapping, kvconfig)
 	case "scorch":
-		ix = indexer.NewIndexer(indexPath, indexMapping)
+		ix, _ = indexer.NewScorchIndexerWithConfig(indexPath, indexMapping, kvconfig)
 	case "moss":
 		ix, _ = indexer.NewMossIndexer(indexPath)
 	case "geo-moss":
 		ix, _ = indexer.NewMossIndexerWithMapping(indexPath, indexMapping)
 	case "geo-scorch":
-		ix, _ = indexer.NewScorchIndexerWithMapping(indexPath, indexMapping)
+		ix, _ = indexer.NewScorchIndexerWithGeoConfig(indexPath, "_location", indexMapping, kvconfig)
 	default:
 		ix = indexer.NewIndexer(indexPath, indexMapping)
 	}
@@ -472,8 +502,14 @@ func NewWithIndex(root, index string, indexMapping mapping.IndexMapping, indexOp
 		if s.ReIndexBatchSize > 0 {
 			reindexOpts = append(reindexOpts, indexer.WithBatchSize(s.ReIndexBatchSize))
 		}
-		s.Logger.Debug("starting reindex", "batchSize", s.ReIndexBatchSize)
-		if err = indexer.ReIndex(index, indexInitFilePath, s, ix, reindexOpts...); err != nil {
+		if s.ReIndexWorkers > 0 {
+			reindexOpts = append(reindexOpts, indexer.WithWorkers(s.ReIndexWorkers))
+		}
+		if s.ReIndexUnsafeBatch {
+			reindexOpts = append(reindexOpts, indexer.WithUnsafeBatch(true))
+		}
+		s.Logger.Debug("starting reindex", "batchSize", s.ReIndexBatchSize, "workers", s.ReIndexWorkers, "unsafeBatch", s.ReIndexUnsafeBatch)
+		if err = indexer.ReIndex(index, indexInitFilePath, s, geoIndex, reindexOpts...); err != nil {
 			return
 		}
 		s.Logger.Debug("reindex completed successfully")
@@ -494,21 +530,26 @@ func (s *BadgerStore) ReopenIndex() error {
 	os.RemoveAll(s.IndexPath)
 	os.MkdirAll(s.IndexPath, 0700)
 
+	var kvconfig map[string]interface{}
+	if s.ReIndexUnsafeBatch {
+		kvconfig = map[string]interface{}{"unsafe_batch": true}
+	}
+
 	switch s.IndexType {
 	case "badger":
 		ix = indexer.NewBadgerIndexerWithMapping(s.IndexPath, s.IndexMapping)
 	case "memory":
 		ix, _ = indexer.NewMemIndexerWithMapping(s.IndexPath, s.IndexMapping)
 	case "moss-scorch":
-		ix, _ = indexer.NewMossScorchIndexerWithMapping(s.IndexPath, s.IndexMapping)
+		ix, _ = indexer.NewMossScorchIndexerWithConfig(s.IndexPath, s.IndexMapping, kvconfig)
 	case "scorch":
-		ix = indexer.NewIndexer(s.IndexPath, s.IndexMapping)
+		ix, _ = indexer.NewScorchIndexerWithConfig(s.IndexPath, s.IndexMapping, kvconfig)
 	case "moss":
 		ix, _ = indexer.NewMossIndexer(s.IndexPath)
 	case "geo-moss":
 		ix, _ = indexer.NewMossIndexerWithMapping(s.IndexPath, s.IndexMapping)
 	case "geo-scorch":
-		ix, _ = indexer.NewScorchIndexerWithMapping(s.IndexPath, s.IndexMapping)
+		ix, _ = indexer.NewScorchIndexerWithGeoConfig(s.IndexPath, "_location", s.IndexMapping, kvconfig)
 	default:
 		ix = indexer.NewIndexer(s.IndexPath, s.IndexMapping)
 	}
@@ -894,8 +935,10 @@ func (s *BadgerStore) Count(store string) (int64, error) {
 }
 
 func (s *BadgerStore) Cursor() (common.Iterator, error) {
+	txn := s.Db.NewTransaction(false)
 	rv := Iterator{
-		iterator: s.Db.NewTransaction(false).NewIterator(badgerdb.DefaultIteratorOptions),
+		iterator: txn.NewIterator(badgerdb.DefaultIteratorOptions),
+		txn:      txn,
 	}
 	rv.iterator.Rewind()
 	return &rv, nil

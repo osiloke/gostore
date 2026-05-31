@@ -4,12 +4,14 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"runtime"
 	"strconv"
+	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	log "github.com/mgutz/logxi/v1"
-
-	"strings"
 
 	jsoniter "github.com/json-iterator/go"
 
@@ -17,6 +19,8 @@ import (
 	"github.com/blevesearch/bleve/v2/mapping"
 	"github.com/schollz/progressbar/v3"
 	// "github.com/blevesearch/blevex/regexp"
+
+	"golang.org/x/sync/errgroup"
 )
 
 const (
@@ -27,7 +31,22 @@ var jiter = jsoniter.ConfigCompatibleWithStandardLibrary
 
 // ReIndexOptions specifies configuration for the re-indexing process.
 type ReIndexOptions struct {
+	// BatchSize is the number of documents to accumulate per batch before
+	// flushing to the index. A value of 0 disables batching and indexes
+	// documents one at a time.
 	BatchSize int
+
+	// Workers is the number of concurrent worker goroutines used to unmarshal
+	// and index documents. Defaults to runtime.NumCPU() if <= 0.
+	// Tune this down on memory-constrained instances.
+	Workers int
+
+	// UnsafeBatch, when true, tells the indexer to use Bleve's unsafe batch
+	// mode (if supported by the underlying index store, e.g. Scorch). In this
+	// mode, Batch() returns as soon as the data is searchable in memory,
+	// without waiting for disk persistence. This provides maximum throughput
+	// but risks data loss on crash. Default is false (safe mode).
+	UnsafeBatch bool
 }
 
 // ReIndexOption is a function type that modifies ReIndexOptions.
@@ -38,6 +57,65 @@ func WithBatchSize(size int) ReIndexOption {
 	return func(o *ReIndexOptions) {
 		o.BatchSize = size
 	}
+}
+
+// WithWorkers returns a ReIndexOption that sets the number of concurrent
+// worker goroutines. Use a lower value on memory-constrained instances.
+func WithWorkers(count int) ReIndexOption {
+	return func(o *ReIndexOptions) {
+		o.Workers = count
+	}
+}
+
+// WithUnsafeBatch returns a ReIndexOption that enables or disables unsafe
+// batch mode. When enabled, batches are committed without waiting for disk
+// persistence, providing maximum throughput at the cost of crash safety.
+func WithUnsafeBatch(unsafe bool) ReIndexOption {
+	return func(o *ReIndexOptions) {
+		o.UnsafeBatch = unsafe
+	}
+}
+
+// reindexJob is a unit of work sent from the producer to a worker goroutine.
+type reindexJob struct {
+	key []byte
+	val []byte
+}
+
+// byteSlicePool reduces GC pressure during high-throughput reindexing by
+// reusing byte slices for job payloads.
+var byteSlicePool = sync.Pool{
+	New: func() interface{} {
+		b := make([]byte, 0, 4096)
+		return &b
+	},
+}
+
+// getPooledSlice returns a byte slice from the pool, copying src into it.
+func getPooledSlice(src []byte) []byte {
+	bp := byteSlicePool.Get().(*[]byte)
+	b := *bp
+	if cap(b) < len(src) {
+		b = make([]byte, len(src))
+	} else {
+		b = b[:len(src)]
+	}
+	copy(b, src)
+	return b
+}
+
+// putPooledSlice returns a byte slice to the pool for reuse.
+func putPooledSlice(b []byte) {
+	b = b[:0]
+	byteSlicePool.Put(&b)
+}
+
+// ErrorAwareIterator is an optional interface that iterators can implement to
+// surface errors that occur during iteration (e.g. I/O failures in ValueCopy).
+// If the iterator provided to ReIndex implements this interface, errors are
+// checked after each call to Value().
+type ErrorAwareIterator interface {
+	LastError() error
 }
 
 // ReIndex rebuilds the search index from scratch by iterating over every record
@@ -59,7 +137,8 @@ func WithBatchSize(size int) ReIndexOption {
 //     wrapped in an [IndexedData] value containing the bucket name and the raw data
 //     map. The full storage key is used as the document ID to prevent collisions
 //     across tables.
-//   - opts: optional re-indexing configuration (e.g. [WithBatchSize]).
+//   - opts: optional re-indexing configuration (e.g. [WithBatchSize], [WithWorkers],
+//     [WithUnsafeBatch]).
 //
 // # Key splitting
 //
@@ -87,27 +166,73 @@ func WithBatchSize(size int) ReIndexOption {
 // Records whose values cannot be unmarshalled as JSON objects are skipped with a
 // warning log and do not contribute to the final count.
 //
+// # Concurrency
+//
+// When Workers > 1 (or defaults to NumCPU), the function uses a producer-worker
+// pattern: a single producer goroutine reads from the cursor and fans out work
+// to N worker goroutines via a bounded channel. Each worker maintains its own
+// bleve.Batch for optimal Scorch concurrency. The bounded channel provides
+// backpressure to prevent the producer from reading the entire database into
+// memory, which is critical for low-memory instances.
+//
 // On success the function writes the init file and returns nil. Any error writing
 // the init file is returned to the caller.
 func ReIndex(name, indexInitFilePath string, provider ProviderStore, index Indexer, opts ...ReIndexOption) error {
 	options := &ReIndexOptions{
 		BatchSize: 0,
+		Workers:   0,
 	}
 	for _, opt := range opts {
 		opt(options)
 	}
+
+	// Default to NumCPU workers, minimum 1.
+	workers := options.Workers
+	if workers <= 0 {
+		workers = runtime.NumCPU()
+	}
+	if workers < 1 {
+		workers = 1
+	}
+
+	batchSize := options.BatchSize
+
+	// For single worker or no batch size, fall back to sequential processing
+	// to preserve exact backwards-compatible behaviour (including progress bar
+	// semantics and init-file format).
+	if workers == 1 || batchSize <= 0 {
+		return reindexSequential(name, indexInitFilePath, provider, index, batchSize)
+	}
+
+	return reindexParallel(name, indexInitFilePath, provider, index, workers, batchSize)
+}
+
+// reindexSequential is the original single-goroutine reindex path, preserved
+// for backwards compatibility and for cases where batching is disabled.
+func reindexSequential(name, indexInitFilePath string, provider ProviderStore, index Indexer, batchSize int) error {
 	iter, _ := provider.Cursor()
+	defer iter.Close()
+
 	count := 0
+	totalRows := 0
 	bar := progressbar.Default(-1, "reindexing")
 	defer bar.Finish()
 	batch := index.BatchIndex()
-	batchSize := options.BatchSize
 
 	processedInBatch := 0
 	lastUpdate := time.Now()
 	for iter.Valid() {
+		totalRows++
 		key := iter.Key()
 		val := iter.Value()
+
+		// Check for iterator errors (e.g. ValueCopy failures).
+		if errIter, ok := iter.(ErrorAwareIterator); ok {
+			if err := errIter.LastError(); err != nil {
+				return fmt.Errorf("iterator error at key %s: %w", string(key), err)
+			}
+		}
+
 		processedInBatch++
 
 		var v map[string]interface{}
@@ -170,7 +295,141 @@ func ReIndex(name, indexInitFilePath string, provider ProviderStore, index Index
 	if processedInBatch > 0 {
 		bar.Add(processedInBatch)
 	}
-	logger.Info("reindexed", "count", count)
+	logger.Info("reindexed", "count", count, "total_rows", totalRows)
+	logger.Info("writing index file", "path", indexInitFilePath)
+	return os.WriteFile(indexInitFilePath, []byte(name+"|"+time.Now().UTC().String()+"|"+strconv.Itoa(count)), os.ModePerm)
+}
+
+// reindexParallel uses a producer-worker pattern for concurrent reindexing.
+// Each worker maintains its own bleve.Batch to avoid lock contention and to
+// align with Scorch's concurrent batch design. The bounded jobs channel
+// provides backpressure so the producer cannot exhaust memory on low-memory
+// instances.
+func reindexParallel(name, indexInitFilePath string, provider ProviderStore, index Indexer, workers, batchSize int) error {
+	iter, _ := provider.Cursor()
+	defer iter.Close()
+
+	var totalCount int64
+	var totalRows int64
+
+	bar := progressbar.Default(-1, "reindexing")
+	defer bar.Finish()
+
+	// Bounded channel: capacity is workers * 2 to allow some buffering while
+	// keeping memory usage proportional to the number of workers. On low-memory
+	// instances where workers is tuned down (e.g. 1-2), this naturally reduces
+	// the buffer.
+	jobsCap := workers * 2
+	if jobsCap < 4 {
+		jobsCap = 4
+	}
+	jobs := make(chan reindexJob, jobsCap)
+
+	// Determine if this is a GeoIndexer to avoid the type assertion per-item
+	// inside each worker.
+	geoIx, isGeo := index.(*GeoIndexer)
+
+	g := new(errgroup.Group)
+
+	// --- Producer goroutine ---
+	g.Go(func() error {
+		defer close(jobs)
+		for iter.Valid() {
+			atomic.AddInt64(&totalRows, 1)
+			key := iter.Key()
+			val := iter.Value()
+
+			// Check for iterator errors.
+			if errIter, ok := iter.(ErrorAwareIterator); ok {
+				if err := errIter.LastError(); err != nil {
+					return fmt.Errorf("iterator error at key %s: %w", string(key), err)
+				}
+			}
+
+			if val == nil {
+				iter.Next()
+				continue
+			}
+
+			// Copy key and val using the pool so they outlive the iterator step.
+			keyCopy := getPooledSlice(key)
+			valCopy := getPooledSlice(val)
+
+			jobs <- reindexJob{key: keyCopy, val: valCopy}
+			iter.Next()
+		}
+		return nil
+	})
+
+	// --- Worker goroutines ---
+	for w := 0; w < workers; w++ {
+		g.Go(func() error {
+			batch := index.BatchIndex()
+			batchCount := 0
+
+			for job := range jobs {
+				var v map[string]interface{}
+				if err := jiter.Unmarshal(job.val, &v); err != nil {
+					logger.Warn("failed to unmarshal value", "key", string(job.key), "value", string(job.val))
+					putPooledSlice(job.key)
+					putPooledSlice(job.val)
+					continue
+				}
+
+				k := string(job.key)
+				indexID := strings.TrimPrefix(k, defaultTablePrefix)
+				u := strings.SplitN(indexID, "|", 2)
+				store := u[0]
+
+				var d interface{}
+				if isGeo {
+					geoDoc := map[string]interface{}{"bucket": store, "data": v}
+					if vv, ok := v["_"+geoIx.Field]; ok {
+						geoDoc[geoIx.Field] = vv
+					}
+					d = geoDoc
+				} else {
+					d = IndexedData{store, v}
+				}
+
+				batch.Index(indexID, d)
+				batchCount++
+				atomic.AddInt64(&totalCount, 1)
+
+				// Return pooled slices now that we're done with them.
+				putPooledSlice(job.key)
+				putPooledSlice(job.val)
+
+				if batchCount >= batchSize {
+					if batch.Size() > 0 {
+						if err := index.Batch(batch); err != nil {
+							return err
+						}
+						bar.Add(batchCount)
+						batch = index.BatchIndex()
+						batchCount = 0
+					}
+				}
+			}
+
+			// Flush remaining items in the worker's batch.
+			if batch.Size() > 0 {
+				if err := index.Batch(batch); err != nil {
+					return err
+				}
+				bar.Add(batchCount)
+			}
+			return nil
+		})
+	}
+
+	if err := g.Wait(); err != nil {
+		return err
+	}
+
+	count := int(atomic.LoadInt64(&totalCount))
+	rows := int(atomic.LoadInt64(&totalRows))
+	logger.Info("reindexed", "count", count, "total_rows", rows, "workers", workers)
 	logger.Info("writing index file", "path", indexInitFilePath)
 	return os.WriteFile(indexInitFilePath, []byte(name+"|"+time.Now().UTC().String()+"|"+strconv.Itoa(count)), os.ModePerm)
 }
