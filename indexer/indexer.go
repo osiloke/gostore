@@ -1,6 +1,7 @@
 package indexer
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -18,6 +19,7 @@ import (
 	"github.com/blevesearch/bleve/v2"
 	"github.com/blevesearch/bleve/v2/mapping"
 	"github.com/schollz/progressbar/v3"
+
 	// "github.com/blevesearch/blevex/regexp"
 
 	"golang.org/x/sync/errgroup"
@@ -78,8 +80,8 @@ func WithUnsafeBatch(unsafe bool) ReIndexOption {
 
 // reindexJob is a unit of work sent from the producer to a worker goroutine.
 type reindexJob struct {
-	key []byte
-	val []byte
+	key *[]byte
+	val *[]byte
 }
 
 // byteSlicePool reduces GC pressure during high-throughput reindexing by
@@ -91,23 +93,22 @@ var byteSlicePool = sync.Pool{
 	},
 }
 
-// getPooledSlice returns a byte slice from the pool, copying src into it.
-func getPooledSlice(src []byte) []byte {
+// getPooledSlice returns a pointer to a byte slice from the pool, copying src into it.
+func getPooledSlice(src []byte) *[]byte {
 	bp := byteSlicePool.Get().(*[]byte)
-	b := *bp
-	if cap(b) < len(src) {
-		b = make([]byte, len(src))
+	if cap(*bp) < len(src) {
+		*bp = make([]byte, len(src))
 	} else {
-		b = b[:len(src)]
+		*bp = (*bp)[:len(src)]
 	}
-	copy(b, src)
-	return b
+	copy(*bp, src)
+	return bp
 }
 
-// putPooledSlice returns a byte slice to the pool for reuse.
-func putPooledSlice(b []byte) {
-	b = b[:0]
-	byteSlicePool.Put(&b)
+// putPooledSlice returns a byte slice pointer to the pool for reuse.
+func putPooledSlice(bp *[]byte) {
+	*bp = (*bp)[:0]
+	byteSlicePool.Put(bp)
 }
 
 // ErrorAwareIterator is an optional interface that iterators can implement to
@@ -237,7 +238,7 @@ func reindexSequential(name, indexInitFilePath string, provider ProviderStore, i
 
 		var v map[string]interface{}
 		if err := jiter.Unmarshal(val, &v); err != nil {
-			logger.Warn("failed to unmarshal value", "key", string(key), "value", string(val))
+			logger.Warn("failed to unmarshal value", "key", string(key), "val_len", len(val))
 			iter.Next()
 			continue
 		}
@@ -268,7 +269,12 @@ func reindexSequential(name, indexInitFilePath string, provider ProviderStore, i
 		}
 		count++
 
-		timeToUpdate := time.Since(lastUpdate) >= time.Minute
+		// Only check time periodically to save CPU cycles
+		timeToUpdate := false
+		if processedInBatch > 0 && processedInBatch%1000 == 0 {
+			timeToUpdate = time.Since(lastUpdate) >= time.Minute
+		}
+
 		if batchSize > 0 && (count > 0 && count%batchSize == 0 || timeToUpdate) {
 			if batch.Size() > 0 {
 				if err := index.Batch(batch); err != nil {
@@ -329,12 +335,18 @@ func reindexParallel(name, indexInitFilePath string, provider ProviderStore, ind
 	// inside each worker.
 	geoIx, isGeo := index.(*GeoIndexer)
 
-	g := new(errgroup.Group)
+	g, ctx := errgroup.WithContext(context.Background())
 
 	// --- Producer goroutine ---
 	g.Go(func() error {
 		defer close(jobs)
 		for iter.Valid() {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			default:
+			}
+
 			atomic.AddInt64(&totalRows, 1)
 			key := iter.Key()
 			val := iter.Value()
@@ -355,7 +367,14 @@ func reindexParallel(name, indexInitFilePath string, provider ProviderStore, ind
 			keyCopy := getPooledSlice(key)
 			valCopy := getPooledSlice(val)
 
-			jobs <- reindexJob{key: keyCopy, val: valCopy}
+			select {
+			case <-ctx.Done():
+				putPooledSlice(keyCopy)
+				putPooledSlice(valCopy)
+				return ctx.Err()
+			case jobs <- reindexJob{key: keyCopy, val: valCopy}:
+			}
+
 			iter.Next()
 		}
 		return nil
@@ -369,14 +388,14 @@ func reindexParallel(name, indexInitFilePath string, provider ProviderStore, ind
 
 			for job := range jobs {
 				var v map[string]interface{}
-				if err := jiter.Unmarshal(job.val, &v); err != nil {
-					logger.Warn("failed to unmarshal value", "key", string(job.key), "value", string(job.val))
+				if err := jiter.Unmarshal(*job.val, &v); err != nil {
+					logger.Warn("failed to unmarshal value", "key", string(*job.key), "val_len", len(*job.val))
 					putPooledSlice(job.key)
 					putPooledSlice(job.val)
 					continue
 				}
 
-				k := string(job.key)
+				k := string(*job.key)
 				indexID := strings.TrimPrefix(k, defaultTablePrefix)
 				u := strings.SplitN(indexID, "|", 2)
 				store := u[0]
