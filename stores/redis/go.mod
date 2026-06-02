@@ -7,7 +7,7 @@ require (
 	github.com/alicebob/miniredis/v2 v2.31.0
 	github.com/osiloke/gostore/common v1.3.2
 	github.com/osiloke/gostore/testing v0.0.0
-	github.com/redis/go-redis/v9 v9.7.0
+	github.com/redis/go-redis/v9 v9.7.3
 	github.com/stretchr/testify v1.11.1
 )
 
