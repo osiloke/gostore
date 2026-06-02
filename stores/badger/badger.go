@@ -89,23 +89,23 @@ func WithOptionsModifier(modifier func(opts badgerdb.Options) badgerdb.Options) 
 
 // BadgerStore gostore implementation that used badgerdb
 type BadgerStore struct {
-	Bucket              []byte
-	Db                  *badgerdb.DB
-	Path                string
-	Indexer             indexer.Indexer
-	IndexType           string
-	IndexPath           string
-	IndexMapping        mapping.IndexMapping
-	tableConfig         map[string]*TableConfig
-	t                   *time.Ticker
-	quit                chan struct{}
-	done                chan bool
-	KeyFormat           KeyFormat
-	ReIndexBatchSize    int
-	ReIndexWorkers      int
-	ReIndexUnsafeBatch  bool
-	Logger              log.Logger
-	optionsModifier     func(opts badgerdb.Options) badgerdb.Options
+	Bucket             []byte
+	Db                 *badgerdb.DB
+	Path               string
+	Indexer            indexer.Indexer
+	IndexType          string
+	IndexPath          string
+	IndexMapping       mapping.IndexMapping
+	tableConfig        map[string]*TableConfig
+	t                  *time.Ticker
+	quit               chan struct{}
+	done               chan bool
+	KeyFormat          KeyFormat
+	ReIndexBatchSize   int
+	ReIndexWorkers     int
+	ReIndexUnsafeBatch bool
+	Logger             log.Logger
+	optionsModifier    func(opts badgerdb.Options) badgerdb.Options
 }
 
 // IndexedData represents a stored row
@@ -269,11 +269,11 @@ func New(root string, opts ...StoreOpt) (s *BadgerStore, err error) {
 	}
 
 	s = &BadgerStore{
-		Bucket:       []byte("_default"),
-		Path:         dbPath,
-		IndexPath:    indexPath,
-		IndexType:    "bleve",
-		tableConfig:  make(map[string]*TableConfig),
+		Bucket:      []byte("_default"),
+		Path:        dbPath,
+		IndexPath:   indexPath,
+		IndexType:   "bleve",
+		tableConfig: make(map[string]*TableConfig),
 		KeyFormat: KeyFormat{
 			TablePrefix: "t$",
 			IdSeparator: "|",
@@ -475,7 +475,7 @@ func NewWithIndex(root, index string, indexMapping mapping.IndexMapping, indexOp
 					err = fmt.Errorf("%v", r)
 				}
 				log.New("gostore-contrib.badger").Error("CRITICAL: Bleve index opening panicked (corruption suspected). Initiating inline self-healing reindex...", "error", err.Error())
-				
+
 				// Delete corrupt files and flag for full re-indexing
 				os.RemoveAll(indexPath)
 				os.Remove(indexInitFilePath)
@@ -497,7 +497,7 @@ func NewWithIndex(root, index string, indexMapping mapping.IndexMapping, indexOp
 				case "geo-moss":
 					ix, _ = indexer.NewMossIndexerWithMapping(indexPath, indexMapping)
 				case "geo-scorch":
-					ix, _ = indexer.NewScorchIndexerWithGeoConfig(indexPath, "_location", indexMapping, kvconfig)
+					ix, _ = indexer.NewScorchIndexerWithGeoConfig(indexPath, "location", indexMapping, kvconfig)
 				default:
 					ix = indexer.NewIndexer(indexPath, indexMapping)
 				}

@@ -49,6 +49,17 @@ type ReIndexOptions struct {
 	// without waiting for disk persistence. This provides maximum throughput
 	// but risks data loss on crash. Default is false (safe mode).
 	UnsafeBatch bool
+
+	// PauseAfterDocs is the number of documents to process between cooldown
+	// pauses. When > 0, the reindex pipeline drains and sleeps for
+	// PauseDuration after every chunk of this size, giving Scorch's background
+	// merger a window to merge accumulated segments without contention.
+	// A value of 0 (default) disables periodic pausing.
+	PauseAfterDocs int
+
+	// PauseDuration is how long to sleep between chunks when PauseAfterDocs
+	// is enabled. Defaults to 5 seconds if left at zero.
+	PauseDuration time.Duration
 }
 
 // ReIndexOption is a function type that modifies ReIndexOptions.
@@ -75,6 +86,24 @@ func WithWorkers(count int) ReIndexOption {
 func WithUnsafeBatch(unsafe bool) ReIndexOption {
 	return func(o *ReIndexOptions) {
 		o.UnsafeBatch = unsafe
+	}
+}
+
+// WithPauseAfterDocs configures periodic cooldown pauses during reindexing.
+// After every n documents are processed, the pipeline drains, workers go
+// idle, and the function sleeps for PauseDuration to allow Scorch segment
+// merges to complete. Set to 0 to disable (default).
+func WithPauseAfterDocs(n int) ReIndexOption {
+	return func(o *ReIndexOptions) {
+		o.PauseAfterDocs = n
+	}
+}
+
+// WithPauseDuration sets the cooldown duration used when PauseAfterDocs is
+// enabled. If not set, defaults to 5 seconds.
+func WithPauseDuration(d time.Duration) ReIndexOption {
+	return func(o *ReIndexOptions) {
+		o.PauseDuration = d
 	}
 }
 
@@ -180,8 +209,9 @@ type ErrorAwareIterator interface {
 // the init file is returned to the caller.
 func ReIndex(name, indexInitFilePath string, provider ProviderStore, index Indexer, opts ...ReIndexOption) error {
 	options := &ReIndexOptions{
-		BatchSize: 0,
-		Workers:   0,
+		BatchSize:     0,
+		Workers:       0,
+		PauseDuration: 5 * time.Second,
 	}
 	for _, opt := range opts {
 		opt(options)
@@ -202,15 +232,20 @@ func ReIndex(name, indexInitFilePath string, provider ProviderStore, index Index
 	// to preserve exact backwards-compatible behaviour (including progress bar
 	// semantics and init-file format).
 	if workers == 1 || batchSize <= 0 {
-		return reindexSequential(name, indexInitFilePath, provider, index, batchSize)
+		return reindexSequential(name, indexInitFilePath, provider, index, batchSize,
+			options.PauseAfterDocs, options.PauseDuration)
 	}
 
-	return reindexParallel(name, indexInitFilePath, provider, index, workers, batchSize)
+	return reindexParallel(name, indexInitFilePath, provider, index, workers, batchSize,
+		options.PauseAfterDocs, options.PauseDuration)
 }
 
 // reindexSequential is the original single-goroutine reindex path, preserved
 // for backwards compatibility and for cases where batching is disabled.
-func reindexSequential(name, indexInitFilePath string, provider ProviderStore, index Indexer, batchSize int) error {
+// When pauseAfterDocs > 0 the loop flushes the current batch and sleeps for
+// pauseDuration every pauseAfterDocs rows, giving Scorch's merger a window
+// to consolidate segments. A value of 0 disables pausing (default).
+func reindexSequential(name, indexInitFilePath string, provider ProviderStore, index Indexer, batchSize, pauseAfterDocs int, pauseDuration time.Duration) error {
 	iter, _ := provider.Cursor()
 	defer iter.Close()
 
@@ -224,6 +259,23 @@ func reindexSequential(name, indexInitFilePath string, provider ProviderStore, i
 	lastUpdate := time.Now()
 	for iter.Valid() {
 		totalRows++
+
+		// Chunk boundary pause: flush and sleep every pauseAfterDocs rows.
+		if pauseAfterDocs > 0 && totalRows%pauseAfterDocs == 0 {
+			if batchSize > 0 && batch.Size() > 0 {
+				if err := index.Batch(batch); err != nil {
+					return err
+				}
+				bar.Add(processedInBatch)
+				processedInBatch = 0
+				lastUpdate = time.Now()
+				batch = index.BatchIndex()
+			}
+			logger.Info("reindex chunk complete – pausing",
+				"total_rows", totalRows, "pause", pauseDuration)
+			time.Sleep(pauseDuration)
+		}
+
 		key := iter.Key()
 		val := iter.Value()
 
@@ -311,7 +363,14 @@ func reindexSequential(name, indexInitFilePath string, provider ProviderStore, i
 // align with Scorch's concurrent batch design. The bounded jobs channel
 // provides backpressure so the producer cannot exhaust memory on low-memory
 // instances.
-func reindexParallel(name, indexInitFilePath string, provider ProviderStore, index Indexer, workers, batchSize int) error {
+//
+// When pauseAfterDocs > 0 the work is split into chunks: the producer stops
+// after sending pauseAfterDocs items, all workers drain and flush, then the
+// function sleeps for pauseDuration before starting the next chunk. This
+// gives Scorch's background merger an uncontested window to consolidate
+// segments. When pauseAfterDocs == 0 the loop executes exactly once,
+// preserving the original single-shot behaviour (100% backwards compatible).
+func reindexParallel(name, indexInitFilePath string, provider ProviderStore, index Indexer, workers, batchSize, pauseAfterDocs int, pauseDuration time.Duration) error {
 	iter, _ := provider.Cursor()
 	defer iter.Close()
 
@@ -321,129 +380,154 @@ func reindexParallel(name, indexInitFilePath string, provider ProviderStore, ind
 	bar := progressbar.Default(-1, "reindexing")
 	defer bar.Finish()
 
-	// Bounded channel: capacity is workers * 2 to allow some buffering while
-	// keeping memory usage proportional to the number of workers. On low-memory
-	// instances where workers is tuned down (e.g. 1-2), this naturally reduces
-	// the buffer.
-	jobsCap := workers * 2
-	if jobsCap < 4 {
-		jobsCap = 4
-	}
-	jobs := make(chan reindexJob, jobsCap)
-
 	// Determine if this is a GeoIndexer to avoid the type assertion per-item
 	// inside each worker.
 	geoIx, isGeo := index.(*GeoIndexer)
 
-	g, ctx := errgroup.WithContext(context.Background())
-
-	// --- Producer goroutine ---
-	g.Go(func() error {
-		defer close(jobs)
-		for iter.Valid() {
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			default:
-			}
-
-			atomic.AddInt64(&totalRows, 1)
-			key := iter.Key()
-			val := iter.Value()
-
-			// Check for iterator errors.
-			if errIter, ok := iter.(ErrorAwareIterator); ok {
-				if err := errIter.LastError(); err != nil {
-					return fmt.Errorf("iterator error at key %s: %w", string(key), err)
-				}
-			}
-
-			if val == nil {
-				iter.Next()
-				continue
-			}
-
-			// Copy key and val using the pool so they outlive the iterator step.
-			keyCopy := getPooledSlice(key)
-			valCopy := getPooledSlice(val)
-
-			select {
-			case <-ctx.Done():
-				putPooledSlice(keyCopy)
-				putPooledSlice(valCopy)
-				return ctx.Err()
-			case jobs <- reindexJob{key: keyCopy, val: valCopy}:
-			}
-
-			iter.Next()
+	// --- chunk loop (collapses to a single iteration when pausing is disabled) ---
+	for {
+		if !iter.Valid() {
+			break
 		}
-		return nil
-	})
 
-	// --- Worker goroutines ---
-	for w := 0; w < workers; w++ {
+		// Bounded channel: capacity is workers * 2 to allow some buffering while
+		// keeping memory usage proportional to the number of workers.
+		jobsCap := workers * 2
+		if jobsCap < 4 {
+			jobsCap = 4
+		}
+		jobs := make(chan reindexJob, jobsCap)
+
+		g, ctx := errgroup.WithContext(context.Background())
+		var chunkCount int64 // items sent in this chunk
+
+		// --- Producer goroutine ---
 		g.Go(func() error {
-			batch := index.BatchIndex()
-			batchCount := 0
+			defer close(jobs)
+			for iter.Valid() {
+				// Stop the chunk once the per-chunk limit is reached.
+				if pauseAfterDocs > 0 &&
+					atomic.LoadInt64(&chunkCount) >= int64(pauseAfterDocs) {
+					return nil // iterator NOT advanced; next outer loop resumes here
+				}
 
-			for job := range jobs {
-				var v map[string]interface{}
-				if err := jiter.Unmarshal(*job.val, &v); err != nil {
-					logger.Warn("failed to unmarshal value", "key", string(*job.key), "val_len", len(*job.val))
-					putPooledSlice(job.key)
-					putPooledSlice(job.val)
+				select {
+				case <-ctx.Done():
+					return ctx.Err()
+				default:
+				}
+
+				atomic.AddInt64(&totalRows, 1)
+				key := iter.Key()
+				val := iter.Value()
+
+				// Check for iterator errors.
+				if errIter, ok := iter.(ErrorAwareIterator); ok {
+					if err := errIter.LastError(); err != nil {
+						return fmt.Errorf("iterator error at key %s: %w", string(key), err)
+					}
+				}
+
+				if val == nil {
+					iter.Next()
 					continue
 				}
 
-				k := string(*job.key)
-				indexID := strings.TrimPrefix(k, defaultTablePrefix)
-				u := strings.SplitN(indexID, "|", 2)
-				store := u[0]
+				// Copy key and val using the pool so they outlive the iterator step.
+				keyCopy := getPooledSlice(key)
+				valCopy := getPooledSlice(val)
 
-				var d interface{}
-				if isGeo {
-					geoDoc := map[string]interface{}{"bucket": store, "data": v}
-					if vv, ok := v["_"+geoIx.Field]; ok {
-						geoDoc[geoIx.Field] = vv
-					}
-					d = geoDoc
-				} else {
-					d = IndexedData{store, v}
+				select {
+				case <-ctx.Done():
+					putPooledSlice(keyCopy)
+					putPooledSlice(valCopy)
+					return ctx.Err()
+				case jobs <- reindexJob{key: keyCopy, val: valCopy}:
+					atomic.AddInt64(&chunkCount, 1)
 				}
 
-				batch.Index(indexID, d)
-				batchCount++
-				atomic.AddInt64(&totalCount, 1)
-
-				// Return pooled slices now that we're done with them.
-				putPooledSlice(job.key)
-				putPooledSlice(job.val)
-
-				if batchCount >= batchSize {
-					if batch.Size() > 0 {
-						if err := index.Batch(batch); err != nil {
-							return err
-						}
-						bar.Add(batchCount)
-						batch = index.BatchIndex()
-						batchCount = 0
-					}
-				}
-			}
-
-			// Flush remaining items in the worker's batch.
-			if batch.Size() > 0 {
-				if err := index.Batch(batch); err != nil {
-					return err
-				}
-				bar.Add(batchCount)
+				iter.Next()
 			}
 			return nil
 		})
-	}
 
-	if err := g.Wait(); err != nil {
-		return err
+		// --- Worker goroutines ---
+		for w := 0; w < workers; w++ {
+			g.Go(func() error {
+				batch := index.BatchIndex()
+				batchCount := 0
+
+				for job := range jobs {
+					var v map[string]interface{}
+					if err := jiter.Unmarshal(*job.val, &v); err != nil {
+						logger.Warn("failed to unmarshal value", "key", string(*job.key), "val_len", len(*job.val))
+						putPooledSlice(job.key)
+						putPooledSlice(job.val)
+						continue
+					}
+
+					k := string(*job.key)
+					indexID := strings.TrimPrefix(k, defaultTablePrefix)
+					u := strings.SplitN(indexID, "|", 2)
+					store := u[0]
+
+					var d interface{}
+					if isGeo {
+						geoDoc := map[string]interface{}{"bucket": store, "data": v}
+						if vv, ok := v["_"+geoIx.Field]; ok {
+							geoDoc[geoIx.Field] = vv
+						}
+						d = geoDoc
+					} else {
+						d = IndexedData{store, v}
+					}
+
+					batch.Index(indexID, d)
+					batchCount++
+					atomic.AddInt64(&totalCount, 1)
+
+					// Return pooled slices now that we're done with them.
+					putPooledSlice(job.key)
+					putPooledSlice(job.val)
+
+					if batchCount >= batchSize {
+						if batch.Size() > 0 {
+							if err := index.Batch(batch); err != nil {
+								return err
+							}
+							bar.Add(batchCount)
+							batch = index.BatchIndex()
+							batchCount = 0
+						}
+					}
+				}
+
+				// Flush remaining items in the worker's batch.
+				if batch.Size() > 0 {
+					if err := index.Batch(batch); err != nil {
+						return err
+					}
+					bar.Add(batchCount)
+				}
+				return nil
+			})
+		}
+
+		if err := g.Wait(); err != nil {
+			return err
+		}
+
+		// Chunk boundary: stop if exhausted or pausing is disabled.
+		if !iter.Valid() || pauseAfterDocs <= 0 {
+			break
+		}
+
+		logger.Info("reindex chunk complete – pausing for merge cooldown",
+			"chunk_docs", atomic.LoadInt64(&chunkCount),
+			"total", atomic.LoadInt64(&totalRows),
+			"pause", pauseDuration,
+		)
+		time.Sleep(pauseDuration)
 	}
 
 	count := int(atomic.LoadInt64(&totalCount))

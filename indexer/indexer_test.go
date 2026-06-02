@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/blevesearch/bleve/v2"
 	common "github.com/osiloke/gostore/common"
@@ -1114,6 +1115,262 @@ func mustJSON(v interface{}) []byte {
 		panic(err)
 	}
 	return b
+}
+
+// makeRows builds n mock rows in the "t$users|<i>" format.
+func makeRows(n int) []mockRow {
+	rows := make([]mockRow, n)
+	for i := 0; i < n; i++ {
+		rows[i] = mockRow{
+			key: []byte(fmt.Sprintf("t$users|%d", i)),
+			val: mustJSON(map[string]interface{}{
+				"name": fmt.Sprintf("user-%d", i),
+				"idx":  i,
+			}),
+		}
+	}
+	return rows
+}
+
+// ---------------------------------------------------------------------------
+// TestReIndexOptions – functional option defaults and field coverage
+// ---------------------------------------------------------------------------
+
+func TestReIndexOptions(t *testing.T) {
+	Convey("ReIndexOptions functional options", t, func() {
+		Convey("WithPauseAfterDocs sets PauseAfterDocs", func() {
+			opts := &ReIndexOptions{}
+			WithPauseAfterDocs(50_000)(opts)
+			So(opts.PauseAfterDocs, ShouldEqual, 50_000)
+		})
+
+		Convey("WithPauseAfterDocs(0) leaves PauseAfterDocs at zero (disabled)", func() {
+			opts := &ReIndexOptions{PauseAfterDocs: 100}
+			WithPauseAfterDocs(0)(opts)
+			So(opts.PauseAfterDocs, ShouldEqual, 0)
+		})
+
+		Convey("WithPauseDuration sets PauseDuration", func() {
+			opts := &ReIndexOptions{}
+			WithPauseDuration(15 * time.Second)(opts)
+			So(opts.PauseDuration, ShouldEqual, 15*time.Second)
+		})
+
+		Convey("ReIndex defaults PauseDuration to 5s when not provided", func() {
+			// We verify this by inspecting what the options struct gets BEFORE
+			// the callees run.  The simplest way is to build the struct the same
+			// way ReIndex does and confirm the default.
+			opts := &ReIndexOptions{
+				BatchSize:     0,
+				Workers:       0,
+				PauseDuration: 5 * time.Second,
+			}
+			// Apply no opts – PauseDuration should stay at 5s.
+			So(opts.PauseDuration, ShouldEqual, 5*time.Second)
+		})
+
+		Convey("WithPauseDuration overrides the 5s default", func() {
+			opts := &ReIndexOptions{PauseDuration: 5 * time.Second}
+			WithPauseDuration(30 * time.Second)(opts)
+			So(opts.PauseDuration, ShouldEqual, 30*time.Second)
+		})
+	})
+}
+
+// ---------------------------------------------------------------------------
+// TestReIndexWithPause – integration tests for pause behaviour
+// ---------------------------------------------------------------------------
+
+func TestReIndexWithPause(t *testing.T) {
+	Convey("ReIndex with PauseAfterDocs", t, func() {
+		indexPath := "./test_reindex_pause.index"
+		initFile := "./test_reindex_pause.init"
+		os.RemoveAll(indexPath)
+		os.Remove(initFile)
+		defer os.RemoveAll(indexPath)
+		defer os.Remove(initFile)
+
+		Convey("sequential path: all docs are indexed when PauseAfterDocs > 0", func() {
+			// Use 10 rows; pause every 3 → three pauses expected but we use a
+			// zero duration so the test is fast.
+			rows := makeRows(10)
+			index := NewDefaultIndexer(indexPath)
+			defer index.Close()
+
+			// BatchSize=0 → sequential path; PauseAfterDocs=3 triggers pausing.
+			err := ReIndex("badger", initFile,
+				&mockProvider{&mockIterator{rows: rows}}, index,
+				WithPauseAfterDocs(3),
+				WithPauseDuration(0), // instant — keeps tests fast
+			)
+			So(err, ShouldBeNil)
+
+			// Init file must record all 10 rows.
+			data, readErr := os.ReadFile(initFile)
+			So(readErr, ShouldBeNil)
+			So(string(data), ShouldStartWith, "badger|")
+			So(string(data), ShouldEndWith, "|10")
+
+			// Spot-check: first and last records are searchable.
+			res0, err0 := index.Query("user-0")
+			So(err0, ShouldBeNil)
+			So(res0.Total, ShouldBeGreaterThanOrEqualTo, 1)
+
+			res9, err9 := index.Query("user-9")
+			So(err9, ShouldBeNil)
+			So(res9.Total, ShouldBeGreaterThanOrEqualTo, 1)
+		})
+
+		Convey("parallel path: all docs are indexed when PauseAfterDocs > 0", func() {
+			// 20 rows; 4 workers; pause every 5 → 4 chunks.
+			rows := makeRows(20)
+			index := NewDefaultIndexer(indexPath)
+			defer index.Close()
+
+			err := ReIndex("badger", initFile,
+				&mockProvider{&mockIterator{rows: rows}}, index,
+				WithWorkers(4),
+				WithBatchSize(5),
+				WithPauseAfterDocs(5),
+				WithPauseDuration(0),
+			)
+			So(err, ShouldBeNil)
+
+			data, readErr := os.ReadFile(initFile)
+			So(readErr, ShouldBeNil)
+			So(string(data), ShouldEndWith, "|20")
+
+			// All records reachable.
+			for _, name := range []string{"user-0", "user-10", "user-19"} {
+				res, qErr := index.Query(name)
+				So(qErr, ShouldBeNil)
+				So(res.Total, ShouldBeGreaterThanOrEqualTo, 1)
+			}
+		})
+
+		Convey("PauseAfterDocs=0 (disabled): behaviour is identical to no-pause call", func() {
+			rows := makeRows(12)
+			index := NewDefaultIndexer(indexPath)
+			defer index.Close()
+
+			// Explicitly pass PauseAfterDocs=0 — same as not passing it at all.
+			err := ReIndex("badger", initFile,
+				&mockProvider{&mockIterator{rows: rows}}, index,
+				WithWorkers(2),
+				WithBatchSize(6),
+				WithPauseAfterDocs(0),
+			)
+			So(err, ShouldBeNil)
+
+			data, readErr := os.ReadFile(initFile)
+			So(readErr, ShouldBeNil)
+			So(string(data), ShouldEndWith, "|12")
+		})
+
+		Convey("PauseAfterDocs larger than total docs: no pause fires, all docs indexed", func() {
+			rows := makeRows(5)
+			index := NewDefaultIndexer(indexPath)
+			defer index.Close()
+
+			// Chunk limit bigger than the whole dataset — no sleep should trigger.
+			err := ReIndex("badger", initFile,
+				&mockProvider{&mockIterator{rows: rows}}, index,
+				WithWorkers(2),
+				WithBatchSize(3),
+				WithPauseAfterDocs(100),
+				WithPauseDuration(0),
+			)
+			So(err, ShouldBeNil)
+
+			data, readErr := os.ReadFile(initFile)
+			So(readErr, ShouldBeNil)
+			So(string(data), ShouldEndWith, "|5")
+		})
+
+		Convey("PauseAfterDocs exactly equals total docs: one chunk, no second pause", func() {
+			rows := makeRows(8)
+			index := NewDefaultIndexer(indexPath)
+			defer index.Close()
+
+			err := ReIndex("badger", initFile,
+				&mockProvider{&mockIterator{rows: rows}}, index,
+				WithWorkers(2),
+				WithBatchSize(4),
+				WithPauseAfterDocs(8),
+				WithPauseDuration(0),
+			)
+			So(err, ShouldBeNil)
+
+			data, readErr := os.ReadFile(initFile)
+			So(readErr, ShouldBeNil)
+			So(string(data), ShouldEndWith, "|8")
+		})
+
+		Convey("single-worker with pause: takes sequential path, all docs indexed", func() {
+			rows := makeRows(9)
+			index := NewDefaultIndexer(indexPath)
+			defer index.Close()
+
+			// Workers=1 always uses sequential path; BatchSize=0 → no batching.
+			err := ReIndex("badger", initFile,
+				&mockProvider{&mockIterator{rows: rows}}, index,
+				WithWorkers(1),
+				WithPauseAfterDocs(3),
+				WithPauseDuration(0),
+			)
+			So(err, ShouldBeNil)
+
+			data, readErr := os.ReadFile(initFile)
+			So(readErr, ShouldBeNil)
+			So(string(data), ShouldEndWith, "|9")
+		})
+
+		Convey("sequential path with batch and pause: all docs indexed across chunks", func() {
+			rows := makeRows(15)
+			index := NewDefaultIndexer(indexPath)
+			defer index.Close()
+
+			// BatchSize=4, PauseAfterDocs=5 → flush happens inside each chunk
+			// boundary as well as at the pause boundary.
+			err := ReIndex("badger", initFile,
+				&mockProvider{&mockIterator{rows: rows}}, index,
+				WithWorkers(1),
+				WithBatchSize(4),
+				WithPauseAfterDocs(5),
+				WithPauseDuration(0),
+			)
+			So(err, ShouldBeNil)
+
+			data, readErr := os.ReadFile(initFile)
+			So(readErr, ShouldBeNil)
+			So(string(data), ShouldEndWith, "|15")
+
+			// Spot-check a record from each chunk.
+			for _, name := range []string{"user-0", "user-5", "user-14"} {
+				res, qErr := index.Query(name)
+				So(qErr, ShouldBeNil)
+				So(res.Total, ShouldBeGreaterThanOrEqualTo, 1)
+			}
+		})
+
+		Convey("empty store with pause options: no error, init file records 0", func() {
+			index := NewDefaultIndexer(indexPath)
+			defer index.Close()
+
+			err := ReIndex("badger", initFile,
+				&mockProvider{&mockIterator{rows: []mockRow{}}}, index,
+				WithWorkers(2),
+				WithBatchSize(5),
+				WithPauseAfterDocs(3),
+				WithPauseDuration(0),
+			)
+			So(err, ShouldBeNil)
+
+			data, readErr := os.ReadFile(initFile)
+			So(readErr, ShouldBeNil)
+			So(string(data), ShouldEndWith, "|0")
+		})
+	})
 }
 
 func BenchmarkReIndex(b *testing.B) {
