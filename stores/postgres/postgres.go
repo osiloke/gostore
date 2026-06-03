@@ -1,17 +1,19 @@
 package postgres
 
 import (
-	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log"
 	"os"
+	"strings"
+	"testing/fstest"
 
+	"github.com/golang-migrate/migrate/v4"
+	_ "github.com/golang-migrate/migrate/v4/database/pgx/v5"
+	"github.com/golang-migrate/migrate/v4/source/iofs"
 	_ "github.com/lib/pq"
 	common "github.com/osiloke/gostore/common"
-	"github.com/stripe/pg-schema-diff/pkg/diff"
-	"github.com/stripe/pg-schema-diff/pkg/tempdb"
 	postgres_driver "gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -20,6 +22,17 @@ import (
 )
 
 var logger = common.Logger("postgres")
+
+// stripDriverPrefix removes a "postgres://" or "pgx://" scheme from a DSN
+// so it can be prefixed with the migrate pgx5:// scheme.
+func stripDriverPrefix(dsn string) string {
+	for _, prefix := range []string{"postgres://", "postgresql://", "pgx://"} {
+		if strings.HasPrefix(dsn, prefix) {
+			return dsn[len(prefix):]
+		}
+	}
+	return dsn
+}
 
 // TODO: use generics and allow caller to specify db connector type
 type PostgresObjectStore struct {
@@ -139,60 +152,29 @@ func safeStoreName(name string) string {
 func (s PostgresObjectStore) CreateTable(store string, config interface{}) (err error) {
 	if c, ok := config.(map[string]interface{}); ok {
 		if schema, ok := c["schema"].(string); ok {
-			// db, _ := s.db.DB()
-			// dbsch, err := goerd.SchemaFromPostgresDB(db)
-			// if err != nil {
-			// 	return fmt.Errorf("cannot migrate database: %w", err)
-			// }
-			// dbsch.SaveYaml(os.Stdout)
-			// existing, err := generateCreateTableStatement(s.db, store)
-			// if err != nil {
-			// 	return err
-			// }
-			ctx := context.Background()
-			tempDbFactory, err := tempdb.NewOnInstanceFactory(ctx, func(ctx context.Context, dbName string) (*sql.DB, error) {
-				name, err := UpdatePostgresDSN(s.dsn, dbName)
-				if err != nil {
-					return nil, err
-				}
-				return sql.Open("pgx", name)
-			})
-			if err != nil {
-				return err
+			// Build an in-memory filesystem with the DDL as a migration file
+			// so golang-migrate can apply it via the pgx/v5 driver.
+			fs := fstest.MapFS{
+				"1_init.up.sql": &fstest.MapFile{Data: []byte(schema)},
+				"1_init.down.sql": &fstest.MapFile{Data: []byte("")},
 			}
-			pool, err := sql.Open("pgx", s.dsn)
+			src, err := iofs.New(fs, ".")
 			if err != nil {
-				return err
+				return fmt.Errorf("migrate source: %w", err)
 			}
-			plan, err := diff.Generate(ctx, diff.DBSchemaSource(pool),
-				diff.DDLSchemaSource([]string{schema}),
-				diff.WithTempDbFactory(tempDbFactory),
-			)
+			m, err := migrate.NewWithSourceInstance("iofs", src, "pgx5://"+stripDriverPrefix(s.dsn))
 			if err != nil {
-				return err
+				return fmt.Errorf("migrate init: %w", err)
 			}
-			logger.Debug("plan", "ddl", plan)
-			// existing = strings.ReplaceAll(existing, "\n", "")
-			// existing = strings.ReplaceAll(existing, "\\", "")
-			// oldMigration := sqlize.NewSqlize(sqlize.WithMigrationFolder(""))
-			// newMigration := sqlize.NewSqlize(sqlize.WithMigrationFolder(""))
-			// if err = oldMigration.FromString(existing); err != nil {
-			// 	logger.Error("cannot parse old migration", "err", err)
-			// 	return err
-			// }
-			// if err = newMigration.FromString(schema); err != nil {
-			// 	return err
-			// }
-
-			// newMigration.Diff(*oldMigration)
-			// println(newMigration.StringUp())
-
-			// println(newMigration.StringDown())
-			return s.db.Exec(schema).Error
+			defer m.Close()
+			if err = m.Up(); err != nil && err != migrate.ErrNoChange {
+				return fmt.Errorf("migrate up: %w", err)
+			}
 		}
 	}
 	return nil
 }
+
 
 // Query retrieves documents matching a filter and calculates aggregations.
 func (s PostgresObjectStore) Query(filter, aggregates map[string]interface{}, count int, skip int, store string, opts common.ObjectStoreOptions) (common.ObjectRows, common.AggregateResult, error) {

@@ -8,7 +8,7 @@ require (
 	github.com/gosimple/slug v1.15.0
 	github.com/mitchellh/go-homedir v1.1.0
 	github.com/osiloke/gostore/common v1.3.2
-	github.com/osiloke/gostore/indexer v0.0.0
+	github.com/osiloke/gostore/indexer v1.12.1
 	github.com/osiloke/gostore/stores/badger v0.0.0
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/viper v1.3.2
