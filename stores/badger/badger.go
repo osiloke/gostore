@@ -74,6 +74,25 @@ func WithReIndexUnsafeBatch(unsafe bool) StoreOpt {
 	}
 }
 
+// WithReIndexPauseAfterDocs is a store option that sets the cooldown interval
+// for periodic pauses during re-indexing. After every N documents, the
+// reindex pipeline drains and sleeps for ReIndexPauseDuration to give the
+// underlying index engine (e.g. Scorch) a window to merge accumulated
+// segments without contention. Set to 0 to disable (default).
+func WithReIndexPauseAfterDocs(n int) StoreOpt {
+	return func(s *BadgerStore) {
+		s.ReIndexPauseAfterDocs = n
+	}
+}
+
+// WithReIndexPauseDuration is a store option that sets the cooldown duration
+// used when ReIndexPauseAfterDocs is enabled. Defaults to 5 seconds if not set.
+func WithReIndexPauseDuration(d time.Duration) StoreOpt {
+	return func(s *BadgerStore) {
+		s.ReIndexPauseDuration = d
+	}
+}
+
 func WithLogger(logger log.Logger) StoreOpt {
 	return func(s *BadgerStore) {
 		s.Logger = logger
@@ -101,10 +120,12 @@ type BadgerStore struct {
 	quit               chan struct{}
 	done               chan bool
 	KeyFormat          KeyFormat
-	ReIndexBatchSize   int
-	ReIndexWorkers     int
-	ReIndexUnsafeBatch bool
-	Logger             log.Logger
+	ReIndexBatchSize       int
+	ReIndexWorkers         int
+	ReIndexUnsafeBatch     bool
+	ReIndexPauseAfterDocs  int
+	ReIndexPauseDuration   time.Duration
+	Logger                 log.Logger
 	optionsModifier    func(opts badgerdb.Options) badgerdb.Options
 }
 
@@ -551,7 +572,13 @@ func NewWithIndex(root, index string, indexMapping mapping.IndexMapping, indexOp
 		if s.ReIndexUnsafeBatch {
 			reindexOpts = append(reindexOpts, indexer.WithUnsafeBatch(true))
 		}
-		s.Logger.Debug("starting reindex", "batchSize", s.ReIndexBatchSize, "workers", s.ReIndexWorkers, "unsafeBatch", s.ReIndexUnsafeBatch)
+		if s.ReIndexPauseAfterDocs > 0 {
+			reindexOpts = append(reindexOpts, indexer.WithPauseAfterDocs(s.ReIndexPauseAfterDocs))
+		}
+		if s.ReIndexPauseDuration > 0 {
+			reindexOpts = append(reindexOpts, indexer.WithPauseDuration(s.ReIndexPauseDuration))
+		}
+		s.Logger.Debug("starting reindex", "batchSize", s.ReIndexBatchSize, "workers", s.ReIndexWorkers, "unsafeBatch", s.ReIndexUnsafeBatch, "pauseAfterDocs", s.ReIndexPauseAfterDocs, "pauseDuration", s.ReIndexPauseDuration)
 		if err = indexer.ReIndex(index, indexInitFilePath, s, geoIndex, reindexOpts...); err != nil {
 			return
 		}
