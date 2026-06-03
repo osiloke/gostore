@@ -181,6 +181,83 @@ func TestGetQueryString(t *testing.T) {
 			},
 			`+bucket:store +data.name:/fifty.*/ +data.name:/.*cent/`,
 		},
+		// 1. Both anchors present (The exact scenario that caused the crash)
+		{
+			"testRegexBothAnchors",
+			args{
+				"store",
+				map[string]interface{}{"domain": []string{"^.*osi.*$"}},
+			},
+			`+bucket:store +data.domain:/.*osi.*/`,
+		},
+
+		// 2. Start anchor only
+		{
+			"testRegexStartAnchorOnly",
+			args{
+				"store",
+				map[string]interface{}{"domain": []string{"^.*osi.*"}},
+			},
+			`+bucket:store +data.domain:/.*osi.*/`,
+		},
+
+		// 3. End anchor only — no ^ prefix, so treated as plain text ($ is safe inside quotes)
+		{
+			"testRegexEndAnchorOnly",
+			args{
+				"store",
+				map[string]interface{}{"domain": []string{".*osi.*$"}},
+			},
+			`+bucket:store +data.domain:".*osi.*$"`,
+		},
+
+		// 4. No anchors — no ^ prefix, treated as plain text
+		{
+			"testRegexNoAnchors",
+			args{
+				"store",
+				map[string]interface{}{"domain": []string{".*osi.*"}},
+			},
+			`+bucket:store +data.domain:".*osi.*"`,
+		},
+
+		// 5. Array with a mix: only ^ entries are regex, plain $ entries are quoted
+		{
+			"testArrayMixedRegexAnchors",
+			args{
+				"store",
+				map[string]interface{}{"name": []string{"^start.*", ".*middle.*", ".*end$"}},
+			},
+			`+bucket:store +data.name:/start.*/ +data.name:".*middle.*" +data.name:".*end$"`,
+		},
+
+		// 6. ^ followed immediately by $ — regex with empty body
+		{
+			"testRegexAnchorsOnly",
+			args{
+				"store",
+				map[string]interface{}{"domain": []string{"^$"}},
+			},
+			`+bucket:store +data.domain://`,
+		},
+
+		// 7. Dollar sign used as currency — must NOT be treated as regex
+		{
+			"testCurrencyDollarSign",
+			args{
+				"store",
+				map[string]interface{}{"price": "$100"},
+			},
+			`+bucket:store +data.price:"$100"`,
+		},
+		{
+			"testCurrencyDollarSignInMiddle",
+			args{
+				"store",
+				map[string]interface{}{"label": "USD$50"},
+			},
+			`+bucket:store +data.label:"USD$50"`,
+		},
 		{
 			"testOptionalFields",
 			args{
@@ -271,6 +348,24 @@ func Test_getQueryValue(t *testing.T) {
 				"?red",
 			},
 			`data.color:"red"`,
+		},
+		{
+			"test currency dollar sign",
+			args{
+				"store",
+				"price",
+				"$100",
+			},
+			`+data.price:"$100"`,
+		},
+		{
+			"test trailing dollar sign plain text",
+			args{
+				"store",
+				"label",
+				".*end$",
+			},
+			`+data.label:".*end$"`,
 		},
 	}
 	for _, tt := range tests {

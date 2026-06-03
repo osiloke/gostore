@@ -72,8 +72,9 @@ func getQueryValue(store, k string, v interface{}) string {
 		} else {
 			first = 0
 		}
-		if string(first) == "^" { //match ^ regex
-			queryString = fmt.Sprintf(`%sdata.%s:/%v/`, prefix, k, reduceValueLenght(string(valRune[1:])))
+		if string(first) == "^" { // only strings starting with ^ are treated as regex
+			// strip the leading ^ and any trailing $ anchor before building the bleve regex query
+			queryString = fmt.Sprintf(`%sdata.%s:/%v/`, prefix, k, reduceValueLenght(strings.TrimSuffix(string(valRune[1:]), "$")))
 		} else if first == '\x3C' {
 			if valRune[1] == '\x3A' {
 				// something like <:d2016-12-12
