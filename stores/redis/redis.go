@@ -989,7 +989,7 @@ func mergeMapCaseInsensitive(existing, src map[string]interface{}) {
 }
 
 func matchFilter(data map[string]interface{}, filter map[string]interface{}) bool {
-	if filter == nil || len(filter) == 0 {
+	if len(filter) == 0 {
 		return true
 	}
 
@@ -1124,12 +1124,13 @@ func evaluateQueryStringSyntax(actual interface{}, queryVal string) bool {
 	first := valRune[0]
 	var matched bool
 
-	if first == '^' {
+	switch first {
+	case '^':
 		// Regex match
 		pattern := string(valRune[1:])
 		patternRegex := "^" + pattern
 		matched, _ = regexp.MatchString(patternRegex, fmt.Sprintf("%v", actual))
-	} else if first == '<' {
+	case '<':
 		// Less than or equal comparison
 		var compVal string
 		if len(valRune) > 1 && valRune[1] == ':' {
@@ -1138,7 +1139,7 @@ func evaluateQueryStringSyntax(actual interface{}, queryVal string) bool {
 			compVal = string(valRune[1:])
 		}
 		matched = compareNumeric(actual, compVal) <= 0
-	} else if first == '>' {
+	case '>':
 		// Greater than or equal comparison
 		var compVal string
 		if len(valRune) > 1 && valRune[1] == ':' {
@@ -1147,7 +1148,7 @@ func evaluateQueryStringSyntax(actual interface{}, queryVal string) bool {
 			compVal = string(valRune[1:])
 		}
 		matched = compareNumeric(actual, compVal) >= 0
-	} else {
+	default:
 		// Exact match or wildcard match
 		expectedStr := string(valRune)
 		actualStr := fmt.Sprintf("%v", actual)
@@ -1384,7 +1385,17 @@ func (s *RedisStore) executeRedisCommands(redisKey string, optsMap map[string]in
 		cmdName = strings.ToUpper(cmdName)
 
 		// Validate against allow-list
-		if s.allowedCommands == nil || !s.allowedCommands[cmdName] {
+		if s.allowedCommands == nil {
+			continue
+		}
+		isAllowed := s.allowedCommands[cmdName]
+		if !isAllowed && s.allowedCommands["*"] {
+			// If wildcard is allowed, only allow it if it is not a dangerous command.
+			if !dangerousCommands[cmdName] {
+				isAllowed = true
+			}
+		}
+		if !isAllowed {
 			continue
 		}
 

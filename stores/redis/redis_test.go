@@ -591,9 +591,7 @@ func TestRedisStoreSuite(t *testing.T) {
 		client2 := redis.NewClient(&redis.Options{Addr: mr2.Addr()})
 		defer client2.Close()
 
-		// Even with FLUSHALL in the allow-list... well, miniredis doesn't
-		// support FLUSHALL via Do(), but we can test that KEYS is skipped
-		// when not explicitly allowed.
+		// Test Case 1: Without explicit allow, a dangerous command (KEYS) is skipped.
 		db2 := NewRedisStore(ctx, client2,
 			WithCustomCommandsEnabled(),
 			WithAllowedCommands([]string{"SET"}),
@@ -624,6 +622,67 @@ func TestRedisStoreSuite(t *testing.T) {
 		val, err := client2.Get(ctx, "safe:key").Result()
 		require.NoError(t, err)
 		require.Equal(t, "val", val)
+
+		// Test Case 2: Using wildcard (*), dangerous commands (FLUSHDB) are still blocked by default.
+		dbWildcard := NewRedisStore(ctx, client2,
+			WithCustomCommandsEnabled(),
+			WithAllowedCommands([]string{"*"}),
+		)
+		defer dbWildcard.Close()
+
+		err = client2.Set(ctx, "test:keep", "alive", 0).Err()
+		require.NoError(t, err)
+
+		_, err = dbWildcard.Save("doc2", store, map[string]interface{}{
+			"id":   "doc2",
+			"name": "Bob",
+			"_redis": map[string]interface{}{
+				"commands": []interface{}{
+					map[string]interface{}{
+						"cmd": "FLUSHDB", // dangerous command
+					},
+					map[string]interface{}{
+						"cmd":  "SET",
+						"args": []interface{}{"wildcard:key", "wildcard-val"},
+					},
+				},
+			},
+		})
+		require.NoError(t, err)
+
+		// The safe key wildcard:key should be set because of the * wildcard allow list
+		valWildcard, err := client2.Get(ctx, "wildcard:key").Result()
+		require.NoError(t, err)
+		require.Equal(t, "wildcard-val", valWildcard)
+
+		// The test:keep key should still exist because FLUSHDB is dangerous and blocked by wildcard
+		keepVal, err := client2.Get(ctx, "test:keep").Result()
+		require.NoError(t, err)
+		require.Equal(t, "alive", keepVal)
+
+		// Test Case 3: Explicitly allowed dangerous command (FLUSHDB) does execute even with wildcard present.
+		dbExplicit := NewRedisStore(ctx, client2,
+			WithCustomCommandsEnabled(),
+			WithAllowedCommands([]string{"*", "FLUSHDB"}),
+		)
+		defer dbExplicit.Close()
+
+		_, err = dbExplicit.Save("doc3", store, map[string]interface{}{
+			"id":   "doc3",
+			"name": "Charlie",
+			"_redis": map[string]interface{}{
+				"commands": []interface{}{
+					map[string]interface{}{
+						"cmd": "FLUSHDB",
+					},
+				},
+			},
+		})
+		require.NoError(t, err)
+
+		// The test:keep key should be gone now because FLUSHDB executed!
+		_, err = client2.Get(ctx, "test:keep").Result()
+		require.Equal(t, redis.Nil, err)
 	})
 
 	t.Run("Test_RedisCommands_CommandOnly", func(t *testing.T) {
