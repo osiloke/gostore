@@ -518,19 +518,15 @@ func TestRedisStoreSuite(t *testing.T) {
 				},
 			},
 		})
-		require.NoError(t, err)
+		require.Error(t, err)
 
-		// allowed:key should exist (SET is allowed)
-		val, err := client2.Get(ctx, "allowed:key").Result()
-		require.NoError(t, err)
-		require.Equal(t, "ok", val)
+		// None of the commands should have executed, because INCR was not allowed
+		_, err = client2.Get(ctx, "allowed:key").Result()
+		require.Equal(t, redis.Nil, err)
 
-		// allowed:key2 should also exist
-		val2, err := client2.Get(ctx, "allowed:key2").Result()
-		require.NoError(t, err)
-		require.Equal(t, "also-ok", val2)
+		_, err = client2.Get(ctx, "allowed:key2").Result()
+		require.Equal(t, redis.Nil, err)
 
-		// counter:doc1 should NOT exist (INCR was rejected)
 		_, err = client2.Get(ctx, "counter:doc1").Result()
 		require.Equal(t, redis.Nil, err)
 	})
@@ -591,7 +587,7 @@ func TestRedisStoreSuite(t *testing.T) {
 		client2 := redis.NewClient(&redis.Options{Addr: mr2.Addr()})
 		defer client2.Close()
 
-		// Test Case 1: Without explicit allow, a dangerous command (KEYS) is skipped.
+		// Test Case 1: Without explicit allow, a dangerous command (KEYS) is rejected.
 		db2 := NewRedisStore(ctx, client2,
 			WithCustomCommandsEnabled(),
 			WithAllowedCommands([]string{"SET"}),
@@ -616,14 +612,13 @@ func TestRedisStoreSuite(t *testing.T) {
 				},
 			},
 		})
-		require.NoError(t, err)
+		require.Error(t, err)
 
-		// Safe command should still execute
-		val, err := client2.Get(ctx, "safe:key").Result()
-		require.NoError(t, err)
-		require.Equal(t, "val", val)
+		// Safe command should NOT execute, because the entire save failed validation
+		_, err = client2.Get(ctx, "safe:key").Result()
+		require.Equal(t, redis.Nil, err)
 
-		// Test Case 2: Using wildcard (*), dangerous commands (FLUSHDB) are still blocked by default.
+		// Test Case 2: Using wildcard (*), dangerous commands (FLUSHDB) are still blocked by default, causing failure.
 		dbWildcard := NewRedisStore(ctx, client2,
 			WithCustomCommandsEnabled(),
 			WithAllowedCommands([]string{"*"}),
@@ -648,14 +643,13 @@ func TestRedisStoreSuite(t *testing.T) {
 				},
 			},
 		})
-		require.NoError(t, err)
+		require.Error(t, err)
 
-		// The safe key wildcard:key should be set because of the * wildcard allow list
-		valWildcard, err := client2.Get(ctx, "wildcard:key").Result()
-		require.NoError(t, err)
-		require.Equal(t, "wildcard-val", valWildcard)
+		// The safe key wildcard:key should NOT be set because validation failed before execution
+		_, err = client2.Get(ctx, "wildcard:key").Result()
+		require.Equal(t, redis.Nil, err)
 
-		// The test:keep key should still exist because FLUSHDB is dangerous and blocked by wildcard
+		// The test:keep key should still exist
 		keepVal, err := client2.Get(ctx, "test:keep").Result()
 		require.NoError(t, err)
 		require.Equal(t, "alive", keepVal)

@@ -252,6 +252,12 @@ func (s *RedisStore) Save(key, store string, src interface{}) (string, error) {
 	// Extract _redis envelope and strip it from the stored document
 	redisOpts := s.extractRedisOpts(data)
 
+	// Validate custom commands if customCommandsEnabled is true.
+	// If any command is not allowed, none of the commands should be executed.
+	if err := s.validateRedisCommands(redisOpts); err != nil {
+		return "", err
+	}
+
 	// Determine if this is a command-only save (no document storage)
 	commandOnly := false
 	if redisOpts != nil {
@@ -1338,6 +1344,57 @@ var dangerousCommands = map[string]bool{
 	"CLIENT":       true,
 	"FUNCTION":     true,
 	"FAILOVER":     true,
+}
+
+// validateRedisCommands checks if all custom commands in optsMap are allowed.
+// If any command is invalid or not allowed, it returns an error.
+func (s *RedisStore) validateRedisCommands(optsMap map[string]interface{}) error {
+	if optsMap == nil {
+		return nil
+	}
+	if !s.customCommandsEnabled {
+		return nil
+	}
+
+	raw, ok := optsMap["commands"]
+	if !ok {
+		return nil
+	}
+
+	cmds, ok := raw.([]interface{})
+	if !ok {
+		return nil
+	}
+
+	for _, entry := range cmds {
+		cmdMap, ok := entry.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		cmdName, _ := cmdMap["cmd"].(string)
+		if cmdName == "" {
+			continue
+		}
+		cmdName = strings.ToUpper(cmdName)
+
+		// Validate against allow-list
+		if s.allowedCommands == nil {
+			return fmt.Errorf("redis command %s is not allowed (allow-list is empty)", cmdName)
+		}
+		isAllowed := s.allowedCommands[cmdName]
+		if !isAllowed && s.allowedCommands["*"] {
+			// If wildcard is allowed, only allow it if it is not a dangerous command.
+			if !dangerousCommands[cmdName] {
+				isAllowed = true
+			}
+		}
+		if !isAllowed {
+			return fmt.Errorf("redis command %s is not allowed", cmdName)
+		}
+	}
+
+	return nil
 }
 
 // executeRedisCommands reads the _redis.commands array from optsMap and
