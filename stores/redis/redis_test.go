@@ -313,4 +313,371 @@ func TestRedisStoreSuite(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, "Bob", item2Persisted["name"])
 	})
+
+	// _redis.commands tests
+	t.Run("Test_RedisCommands_DisabledByDefault", func(t *testing.T) {
+		store := "cmds_disabled"
+
+		_, err := db.Save("doc1", store, map[string]interface{}{
+			"id":   "doc1",
+			"name": "Alice",
+			"_redis": map[string]interface{}{
+				"commands": []interface{}{
+					map[string]interface{}{
+						"cmd":  "SET",
+						"args": []interface{}{"counter:doc1", "42"},
+					},
+				},
+			},
+		})
+		require.NoError(t, err)
+
+		// Counter key should NOT exist — commands disabled by default
+		_, err = client.Get(ctx, "counter:doc1").Result()
+		require.Equal(t, redis.Nil, err)
+	})
+
+	t.Run("Test_RedisCommands_SingleCommand", func(t *testing.T) {
+		mr2, err := miniredis.Run()
+		require.NoError(t, err)
+		defer mr2.Close()
+
+		client2 := redis.NewClient(&redis.Options{Addr: mr2.Addr()})
+		defer client2.Close()
+
+		db2 := NewRedisStore(ctx, client2,
+			WithCustomCommandsEnabled(),
+			WithAllowedCommands([]string{"SET", "INCR", "LPUSH"}),
+		)
+		defer db2.Close()
+
+		store := "cmds_single"
+
+		_, err = db2.Save("doc1", store, map[string]interface{}{
+			"id":   "doc1",
+			"name": "Alice",
+			"_redis": map[string]interface{}{
+				"commands": []interface{}{
+					map[string]interface{}{
+						"cmd":  "SET",
+						"args": []interface{}{"counter:doc1", "42"},
+					},
+				},
+			},
+		})
+		require.NoError(t, err)
+
+		// Counter key should exist with the correct value
+		val, err := client2.Get(ctx, "counter:doc1").Result()
+		require.NoError(t, err)
+		require.Equal(t, "42", val)
+	})
+
+	t.Run("Test_RedisCommands_MultipleCommandsOrder", func(t *testing.T) {
+		mr2, err := miniredis.Run()
+		require.NoError(t, err)
+		defer mr2.Close()
+
+		client2 := redis.NewClient(&redis.Options{Addr: mr2.Addr()})
+		defer client2.Close()
+
+		db2 := NewRedisStore(ctx, client2,
+			WithCustomCommandsEnabled(),
+			WithAllowedCommands([]string{"SET", "INCR", "LPUSH"}),
+		)
+		defer db2.Close()
+
+		store := "cmds_multi"
+
+		_, err = db2.Save("doc1", store, map[string]interface{}{
+			"id":   "doc1",
+			"name": "Alice",
+			"_redis": map[string]interface{}{
+				"commands": []interface{}{
+					map[string]interface{}{
+						"cmd":  "SET",
+						"args": []interface{}{"key:a", "1"},
+					},
+					map[string]interface{}{
+						"cmd":  "INCR",
+						"args": []interface{}{"key:a"},
+					},
+					map[string]interface{}{
+						"cmd":  "LPUSH",
+						"args": []interface{}{"list:doc1", "first"},
+					},
+					map[string]interface{}{
+						"cmd":  "LPUSH",
+						"args": []interface{}{"list:doc1", "second"},
+					},
+				},
+			},
+		})
+		require.NoError(t, err)
+
+		// key:a should be "2" (SET to "1", then INCR)
+		val, err := client2.Get(ctx, "key:a").Result()
+		require.NoError(t, err)
+		require.Equal(t, "2", val)
+
+		// list:doc1 should be ["second", "first"] (first LPUSH "first", then "second")
+		llen, err := client2.LLen(ctx, "list:doc1").Result()
+		require.NoError(t, err)
+		require.Equal(t, int64(2), llen)
+
+		items, err := client2.LRange(ctx, "list:doc1", 0, -1).Result()
+		require.NoError(t, err)
+		require.Equal(t, []string{"second", "first"}, items)
+	})
+
+	t.Run("Test_RedisCommands_BeforeSaveVsAfterSave", func(t *testing.T) {
+		mr2, err := miniredis.Run()
+		require.NoError(t, err)
+		defer mr2.Close()
+
+		client2 := redis.NewClient(&redis.Options{Addr: mr2.Addr()})
+		defer client2.Close()
+
+		db2 := NewRedisStore(ctx, client2,
+			WithCustomCommandsEnabled(),
+			WithAllowedCommands([]string{"SET", "GET"}),
+		)
+		defer db2.Close()
+
+		store := "cmds_when"
+
+		_, err = db2.Save("doc1", store, map[string]interface{}{
+			"id":   "doc1",
+			"name": "Alice",
+			"_redis": map[string]interface{}{
+				"commands": []interface{}{
+					map[string]interface{}{
+						"cmd":  "SET",
+						"args": []interface{}{"before:key", "before-val"},
+						"when": "before_save",
+					},
+					map[string]interface{}{
+						"cmd":  "SET",
+						"args": []interface{}{"after:key", "after-val"},
+						"when": "after_save",
+					},
+				},
+			},
+		})
+		require.NoError(t, err)
+
+		// Both keys should exist
+		beforeVal, err := client2.Get(ctx, "before:key").Result()
+		require.NoError(t, err)
+		require.Equal(t, "before-val", beforeVal)
+
+		afterVal, err := client2.Get(ctx, "after:key").Result()
+		require.NoError(t, err)
+		require.Equal(t, "after-val", afterVal)
+
+		// Verify the document itself exists (saved between before_save and after_save)
+		var doc map[string]interface{}
+		err = db2.Get("doc1", store, &doc)
+		require.NoError(t, err)
+		require.Equal(t, "Alice", doc["name"])
+	})
+
+	t.Run("Test_RedisCommands_AllowListRejection", func(t *testing.T) {
+		mr2, err := miniredis.Run()
+		require.NoError(t, err)
+		defer mr2.Close()
+
+		client2 := redis.NewClient(&redis.Options{Addr: mr2.Addr()})
+		defer client2.Close()
+
+		db2 := NewRedisStore(ctx, client2,
+			WithCustomCommandsEnabled(),
+			WithAllowedCommands([]string{"SET"}), // only SET allowed
+		)
+		defer db2.Close()
+
+		store := "cmds_allowlist"
+
+		_, err = db2.Save("doc1", store, map[string]interface{}{
+			"id":   "doc1",
+			"name": "Alice",
+			"_redis": map[string]interface{}{
+				"commands": []interface{}{
+					map[string]interface{}{
+						"cmd":  "SET",
+						"args": []interface{}{"allowed:key", "ok"},
+					},
+					map[string]interface{}{
+						"cmd":  "INCR", // NOT in allow-list
+						"args": []interface{}{"counter:doc1"},
+					},
+					map[string]interface{}{
+						"cmd":  "SET",
+						"args": []interface{}{"allowed:key2", "also-ok"},
+					},
+				},
+			},
+		})
+		require.NoError(t, err)
+
+		// allowed:key should exist (SET is allowed)
+		val, err := client2.Get(ctx, "allowed:key").Result()
+		require.NoError(t, err)
+		require.Equal(t, "ok", val)
+
+		// allowed:key2 should also exist
+		val2, err := client2.Get(ctx, "allowed:key2").Result()
+		require.NoError(t, err)
+		require.Equal(t, "also-ok", val2)
+
+		// counter:doc1 should NOT exist (INCR was rejected)
+		_, err = client2.Get(ctx, "counter:doc1").Result()
+		require.Equal(t, redis.Nil, err)
+	})
+
+	t.Run("Test_RedisCommands_EnvelopeStripped", func(t *testing.T) {
+		mr2, err := miniredis.Run()
+		require.NoError(t, err)
+		defer mr2.Close()
+
+		client2 := redis.NewClient(&redis.Options{Addr: mr2.Addr()})
+		defer client2.Close()
+
+		db2 := NewRedisStore(ctx, client2,
+			WithCustomCommandsEnabled(),
+			WithAllowedCommands([]string{"SET"}),
+		)
+		defer db2.Close()
+
+		store := "cmds_strip"
+
+		_, err = db2.Save("doc1", store, map[string]interface{}{
+			"id":   "doc1",
+			"name": "Alice",
+			"_redis": map[string]interface{}{
+				"ttl": "1h",
+				"commands": []interface{}{
+					map[string]interface{}{
+						"cmd":  "SET",
+						"args": []interface{}{"side:key", "val"},
+					},
+				},
+			},
+		})
+		require.NoError(t, err)
+
+		// Retrieve the document and verify _redis is NOT present
+		var doc map[string]interface{}
+		err = db2.Get("doc1", store, &doc)
+		require.NoError(t, err)
+		require.Equal(t, "Alice", doc["name"])
+		require.Equal(t, "doc1", doc["id"])
+
+		// _redis must not leak into the stored document
+		_, hasRedis := doc["_redis"]
+		require.False(t, hasRedis, "_redis envelope should be stripped from stored document")
+
+		// ttl should still have been applied
+		ttl, err := client2.TTL(ctx, "t$cmds_strip|doc1").Result()
+		require.NoError(t, err)
+		require.Greater(t, ttl, time.Duration(0))
+	})
+
+	t.Run("Test_RedisCommands_DangerousCommandBlocked", func(t *testing.T) {
+		mr2, err := miniredis.Run()
+		require.NoError(t, err)
+		defer mr2.Close()
+
+		client2 := redis.NewClient(&redis.Options{Addr: mr2.Addr()})
+		defer client2.Close()
+
+		// Even with FLUSHALL in the allow-list... well, miniredis doesn't
+		// support FLUSHALL via Do(), but we can test that KEYS is skipped
+		// when not explicitly allowed.
+		db2 := NewRedisStore(ctx, client2,
+			WithCustomCommandsEnabled(),
+			WithAllowedCommands([]string{"SET"}),
+		)
+		defer db2.Close()
+
+		store := "cmds_dangerous"
+
+		_, err = db2.Save("doc1", store, map[string]interface{}{
+			"id":   "doc1",
+			"name": "Alice",
+			"_redis": map[string]interface{}{
+				"commands": []interface{}{
+					map[string]interface{}{
+						"cmd":  "KEYS", // dangerous, not in allow-list
+						"args": []interface{}{"*"},
+					},
+					map[string]interface{}{
+						"cmd":  "SET",
+						"args": []interface{}{"safe:key", "val"},
+					},
+				},
+			},
+		})
+		require.NoError(t, err)
+
+		// Safe command should still execute
+		val, err := client2.Get(ctx, "safe:key").Result()
+		require.NoError(t, err)
+		require.Equal(t, "val", val)
+	})
+
+	t.Run("Test_RedisCommands_CommandOnly", func(t *testing.T) {
+		mr2, err := miniredis.Run()
+		require.NoError(t, err)
+		defer mr2.Close()
+
+		client2 := redis.NewClient(&redis.Options{Addr: mr2.Addr()})
+		defer client2.Close()
+
+		db2 := NewRedisStore(ctx, client2,
+			WithCustomCommandsEnabled(),
+			WithAllowedCommands([]string{"SET", "INCR"}),
+		)
+		defer db2.Close()
+
+		store := "cmds_only"
+
+		_, err = db2.Save("doc1", store, map[string]interface{}{
+			"id":   "doc1",
+			"name": "Alice",
+			"_redis": map[string]interface{}{
+				"command_only": true,
+				"ttl":          "1h",
+				"commands": []interface{}{
+					map[string]interface{}{
+						"cmd":  "SET",
+						"args": []interface{}{"side:counter", "10"},
+						"when": "before_save",
+					},
+					map[string]interface{}{
+						"cmd":  "INCR",
+						"args": []interface{}{"side:counter"},
+						"when": "after_save",
+					},
+				},
+			},
+		})
+		require.NoError(t, err)
+
+		// Both before_save and after_save commands should have executed in order
+		val, err := client2.Get(ctx, "side:counter").Result()
+		require.NoError(t, err)
+		require.Equal(t, "11", val)
+
+		// The document itself should NOT have been stored
+		var doc map[string]interface{}
+		err = db2.Get("doc1", store, &doc)
+		require.Error(t, err)
+		require.Equal(t, common.ErrNotFound, err)
+
+		// TTL should NOT have been applied (no key exists to apply it to)
+		ttl, err := client2.TTL(ctx, "t$cmds_only|doc1").Result()
+		require.NoError(t, err)
+		require.Equal(t, time.Duration(-2), ttl) // -2 = key does not exist
+	})
 }

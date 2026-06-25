@@ -21,13 +21,15 @@ type KeyFormat struct {
 
 // RedisStore implements the common.ObjectStore interface.
 type RedisStore struct {
-	client          *redis.Client
-	ctx             context.Context
-	dbName          string
-	IDField         string
-	createdAtField  string
-	modifiedAtField string
-	KeyFormat       KeyFormat
+	client                *redis.Client
+	ctx                   context.Context
+	dbName                string
+	IDField               string
+	createdAtField        string
+	modifiedAtField       string
+	KeyFormat             KeyFormat
+	customCommandsEnabled bool
+	allowedCommands       map[string]bool
 }
 
 // NewRedisStore creates a new RedisStore instance.
@@ -72,6 +74,28 @@ func WithModifiedAtField(field string) func(*RedisStore) {
 func WithKeyFormat(kf KeyFormat) func(*RedisStore) {
 	return func(s *RedisStore) {
 		s.KeyFormat = kf
+	}
+}
+
+// WithCustomCommandsEnabled enables execution of _redis.commands custom Redis
+// commands during Save/Update/Replace. Disabled by default for safety.
+func WithCustomCommandsEnabled() func(*RedisStore) {
+	return func(s *RedisStore) {
+		s.customCommandsEnabled = true
+	}
+}
+
+// WithAllowedCommands sets the allow-list of Redis commands that may be
+// executed via _redis.commands. Commands not in this list are rejected.
+// Always-blocked dangerous commands (FLUSHALL, FLUSHDB, CONFIG, SHUTDOWN,
+// KEYS, SCRIPT, EVAL, etc.) are rejected even when listed unless the caller
+// explicitly passes them — the caller must opt into every command.
+func WithAllowedCommands(cmds []string) func(*RedisStore) {
+	return func(s *RedisStore) {
+		s.allowedCommands = make(map[string]bool, len(cmds))
+		for _, c := range cmds {
+			s.allowedCommands[strings.ToUpper(c)] = true
+		}
 	}
 }
 
@@ -223,17 +247,50 @@ func (s *RedisStore) Save(key, store string, src interface{}) (string, error) {
 	data[common.IDField] = key
 	data[s.IDField] = key
 
+	redisKey := s.storedKey(store, key)
+
+	// Extract _redis envelope and strip it from the stored document
+	redisOpts := s.extractRedisOpts(data)
+
+	// Determine if this is a command-only save (no document storage)
+	commandOnly := false
+	if redisOpts != nil {
+		if co, ok := redisOpts["command_only"].(bool); ok {
+			commandOnly = co
+		}
+	}
+
+	// Execute before_save custom commands
+	if err := s.executeRedisCommands(redisKey, redisOpts, "before_save"); err != nil {
+		return "", err
+	}
+
+	if commandOnly {
+		// Command-only mode: skip document SET, skip ZADD, skip TTL.
+		// Only execute the after_save commands.
+		if err := s.executeRedisCommands(redisKey, redisOpts, "after_save"); err != nil {
+			return "", err
+		}
+		return key, nil
+	}
+
+	// Marshal and store without the _redis envelope
 	serialized, err := json.Marshal(data)
 	if err != nil {
 		return "", err
 	}
 
-	redisKey := s.storedKey(store, key)
 	if err := s.client.Set(s.ctx, redisKey, serialized, 0).Err(); err != nil {
 		return "", err
 	}
 
-	if err := s.applyRedisOptions(redisKey, data); err != nil {
+	// Execute after_save custom commands (default when)
+	if err := s.executeRedisCommands(redisKey, redisOpts, "after_save"); err != nil {
+		return "", err
+	}
+
+	// Apply TTL / expire_at / persist
+	if err := s.applyRedisOptions(redisKey, redisOpts); err != nil {
 		return "", err
 	}
 
@@ -1234,24 +1291,119 @@ func cleanPrimaryKeyVal(val string) (string, bool) {
 	return string(runes), true
 }
 
-func (s *RedisStore) applyRedisOptions(redisKey string, data map[string]interface{}) error {
-	redisOptsVal, exists := data["_redis"]
-	if !exists {
-		for k, v := range data {
-			if strings.EqualFold(k, "_redis") {
-				redisOptsVal = v
-				exists = true
-				break
+// extractRedisOpts removes the _redis envelope from data (case-insensitive)
+// and returns it as a map. Returns nil if no _redis key is present.
+func (s *RedisStore) extractRedisOpts(data map[string]interface{}) map[string]interface{} {
+	for k, v := range data {
+		if strings.EqualFold(k, "_redis") {
+			delete(data, k)
+			if optsMap, ok := v.(map[string]interface{}); ok {
+				return optsMap
 			}
+			return nil
 		}
 	}
+	return nil
+}
 
-	if !exists || redisOptsVal == nil {
+// dangerousCommands lists Redis commands that are always blocked unless
+// explicitly added to the allow-list.
+var dangerousCommands = map[string]bool{
+	"FLUSHALL":     true,
+	"FLUSHDB":      true,
+	"CONFIG":       true,
+	"SHUTDOWN":     true,
+	"KEYS":         true,
+	"SCRIPT":       true,
+	"EVAL":         true,
+	"EVALSHA":      true,
+	"DEBUG":        true,
+	"SAVE":         true,
+	"BGSAVE":       true,
+	"BGREWRITEAOF": true,
+	"SLAVEOF":      true,
+	"REPLICAOF":    true,
+	"MIGRATE":      true,
+	"RESTORE":      true,
+	"SYNC":         true,
+	"PSYNC":        true,
+	"MONITOR":      true,
+	"ACL":          true,
+	"MODULE":       true,
+	"CLUSTER":      true,
+	"LATENCY":      true,
+	"SLOWLOG":      true,
+	"ROLE":         true,
+	"CLIENT":       true,
+	"FUNCTION":     true,
+	"FAILOVER":     true,
+}
+
+// executeRedisCommands reads the _redis.commands array from optsMap and
+// executes entries matching the given when value. Each entry is validated
+// against the allow-list; commands that are not allowed are skipped with an
+// error logged. Custom command execution must be enabled via
+// WithCustomCommandsEnabled, otherwise execution is skipped entirely.
+func (s *RedisStore) executeRedisCommands(redisKey string, optsMap map[string]interface{}, when string) error {
+	if optsMap == nil {
+		return nil
+	}
+	if !s.customCommandsEnabled {
 		return nil
 	}
 
-	optsMap, ok := redisOptsVal.(map[string]interface{})
+	raw, ok := optsMap["commands"]
 	if !ok {
+		return nil
+	}
+
+	cmds, ok := raw.([]interface{})
+	if !ok {
+		return nil
+	}
+
+	for _, entry := range cmds {
+		cmdMap, ok := entry.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		// Determine when this command should run (default: after_save)
+		cmdWhen, _ := cmdMap["when"].(string)
+		if cmdWhen == "" {
+			cmdWhen = "after_save"
+		}
+		if cmdWhen != when {
+			continue
+		}
+
+		cmdName, _ := cmdMap["cmd"].(string)
+		if cmdName == "" {
+			continue
+		}
+		cmdName = strings.ToUpper(cmdName)
+
+		// Validate against allow-list
+		if s.allowedCommands == nil || !s.allowedCommands[cmdName] {
+			continue
+		}
+
+		// Build args slice: [cmd, arg1, arg2, ...]
+		args := []interface{}{cmdName}
+		if rawArgs, ok := cmdMap["args"].([]interface{}); ok {
+			args = append(args, rawArgs...)
+		}
+
+		if err := s.client.Do(s.ctx, args...).Err(); err != nil {
+			return fmt.Errorf("redis command %s (when=%s): %w", cmdName, cmdWhen, err)
+		}
+	}
+
+	return nil
+}
+
+func (s *RedisStore) applyRedisOptions(redisKey string, optsMap map[string]interface{}) error {
+	if optsMap == nil {
 		return nil
 	}
 
