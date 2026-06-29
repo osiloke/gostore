@@ -733,4 +733,109 @@ func TestRedisStoreSuite(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, time.Duration(-2), ttl) // -2 = key does not exist
 	})
+
+	t.Run("Test_RedisCommands_CommandResultsWriteback", func(t *testing.T) {
+		mr2, err := miniredis.Run()
+		require.NoError(t, err)
+		defer mr2.Close()
+
+		client2 := redis.NewClient(&redis.Options{Addr: mr2.Addr()})
+		defer client2.Close()
+
+		db2 := NewRedisStore(ctx, client2,
+			WithCustomCommandsEnabled(),
+			WithAllowedCommands([]string{"SET", "INCR"}),
+		)
+		defer db2.Close()
+
+		store := "cmds_results"
+		payload := map[string]interface{}{
+			"id":   "doc1",
+			"name": "Bob",
+			"_redis": map[string]interface{}{
+				"command_only": true,
+				"commands": []interface{}{
+					map[string]interface{}{
+						"cmd":  "SET",
+						"args": []interface{}{"counter:bob", "5"},
+						"when": "before_save",
+					},
+					map[string]interface{}{
+						"cmd":  "INCR",
+						"args": []interface{}{"counter:bob"},
+						"when": "after_save",
+					},
+				},
+			},
+		}
+
+		_, err = db2.Save("doc1", store, payload)
+		require.NoError(t, err)
+
+		redisOpts, ok := payload["_redis"].(map[string]interface{})
+		require.True(t, ok)
+
+		results, ok := redisOpts["results"].([]interface{})
+		require.True(t, ok)
+		require.Len(t, results, 2)
+		require.Equal(t, "OK", results[0])
+		require.Equal(t, int64(6), results[1])
+
+		cmds, ok := redisOpts["commands"].([]interface{})
+		require.True(t, ok)
+		require.Len(t, cmds, 2)
+
+		cmd0 := cmds[0].(map[string]interface{})
+		require.Equal(t, "OK", cmd0["result"])
+
+		cmd1 := cmds[1].(map[string]interface{})
+		require.Equal(t, int64(6), cmd1["result"])
+	})
+
+	t.Run("Test_RedisCommands_RedisOptsSetterInterface", func(t *testing.T) {
+		mr2, err := miniredis.Run()
+		require.NoError(t, err)
+		defer mr2.Close()
+
+		client2 := redis.NewClient(&redis.Options{Addr: mr2.Addr()})
+		defer client2.Close()
+
+		db2 := NewRedisStore(ctx, client2,
+			WithCustomCommandsEnabled(),
+			WithAllowedCommands([]string{"INCR"}),
+		)
+		defer db2.Close()
+
+		cfg := &testConfigStruct{
+			ID: "doc2",
+			RedisOpts: map[string]interface{}{
+				"command_only": true,
+				"commands": []interface{}{
+					map[string]interface{}{
+						"cmd":  "INCR",
+						"args": []interface{}{"struct:counter"},
+					},
+				},
+			},
+		}
+
+		_, err = db2.Save("doc2", "cmds_interface", cfg)
+		require.NoError(t, err)
+
+		results, ok := cfg.RedisOpts["results"].([]interface{})
+		require.True(t, ok)
+		require.Len(t, results, 1)
+		require.Equal(t, int64(1), results[0])
+	})
 }
+
+type testConfigStruct struct {
+	ID        string                 `json:"id"`
+	RedisOpts map[string]interface{} `json:"_redis"`
+}
+
+func (c *testConfigStruct) SetRedisOpts(opts map[string]interface{}) {
+	c.RedisOpts = opts
+}
+
+

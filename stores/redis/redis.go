@@ -277,6 +277,7 @@ func (s *RedisStore) Save(key, store string, src interface{}) (string, error) {
 		if err := s.executeRedisCommands(redisKey, redisOpts, "after_save"); err != nil {
 			return "", err
 		}
+		writebackRedisOpts(src, redisOpts)
 		return key, nil
 	}
 
@@ -310,6 +311,7 @@ func (s *RedisStore) Save(key, store string, src interface{}) (string, error) {
 		return "", err
 	}
 
+	writebackRedisOpts(src, redisOpts)
 	return key, nil
 }
 
@@ -1462,12 +1464,60 @@ func (s *RedisStore) executeRedisCommands(redisKey string, optsMap map[string]in
 			args = append(args, rawArgs...)
 		}
 
-		if err := s.client.Do(s.ctx, args...).Err(); err != nil {
+		res, err := s.client.Do(s.ctx, args...).Result()
+		if err != nil {
 			return fmt.Errorf("redis command %s (when=%s): %w", cmdName, cmdWhen, err)
 		}
+		cmdMap["result"] = res
+
+		var results []interface{}
+		if existingResults, ok := optsMap["results"].([]interface{}); ok {
+			results = existingResults
+		}
+		results = append(results, res)
+		optsMap["results"] = results
 	}
 
 	return nil
+}
+
+// RedisOptsSetter allows custom structs to set their Redis options without reflection.
+type RedisOptsSetter interface {
+	SetRedisOpts(opts map[string]interface{})
+}
+
+func writebackRedisOpts(src interface{}, redisOpts map[string]interface{}) {
+	if src == nil || redisOpts == nil {
+		return
+	}
+
+	var targetMap map[string]interface{}
+
+	switch v := src.(type) {
+	case map[string]interface{}:
+		targetMap = v
+	case *map[string]interface{}:
+		if v != nil && *v != nil {
+			targetMap = *v
+		}
+	}
+
+	if targetMap != nil {
+		redisKey := "_redis"
+		for k := range targetMap {
+			if strings.EqualFold(k, "_redis") {
+				redisKey = k
+				break
+			}
+		}
+		targetMap[redisKey] = redisOpts
+		return
+	}
+
+	// Use the interface instead of reflection
+	if setter, ok := src.(RedisOptsSetter); ok {
+		setter.SetRedisOpts(redisOpts)
+	}
 }
 
 func (s *RedisStore) applyRedisOptions(redisKey string, optsMap map[string]interface{}) error {
