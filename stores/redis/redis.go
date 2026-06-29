@@ -99,6 +99,13 @@ func WithAllowedCommands(cmds []string) func(*RedisStore) {
 	}
 }
 
+func (s *RedisStore) context() context.Context {
+	if s.ctx != nil {
+		return s.ctx
+	}
+	return context.Background()
+}
+
 // tableWithPrefix returns the prefix used for all keys in a table.
 func (s *RedisStore) tableWithPrefix(table string) string {
 	return s.KeyFormat.TablePrefix + table + s.KeyFormat.IdSeparator
@@ -116,12 +123,12 @@ func (s *RedisStore) CreateDatabase() error {
 
 // CreateTable registers the table name in the gostore tables set.
 func (s *RedisStore) CreateTable(table string, sample interface{}) error {
-	return s.client.SAdd(s.ctx, "gostore:tables", table).Err()
+	return s.client.SAdd(s.context(), "gostore:tables", table).Err()
 }
 
 // isTableExists checks if the table has been registered.
 func (s *RedisStore) isTableExists(table string) (bool, error) {
-	return s.client.SIsMember(s.ctx, "gostore:tables", table).Result()
+	return s.client.SIsMember(s.context(), "gostore:tables", table).Result()
 }
 
 // GetStore returns the underlying Redis client.
@@ -197,7 +204,7 @@ func (s *RedisStore) Get(key string, store string, dst interface{}) error {
 	}
 
 	redisKey := s.storedKey(store, key)
-	val, err := s.client.Get(s.ctx, redisKey).Result()
+	val, err := s.client.Get(s.context(), redisKey).Result()
 	if err != nil {
 		if err == redis.Nil {
 			return common.ErrNotFound
@@ -230,8 +237,12 @@ func (s *RedisStore) Save(key, store string, src interface{}) (string, error) {
 		return "", err
 	}
 
+	return s.saveData(key, store, data, src)
+}
+
+func (s *RedisStore) saveData(key, store string, data map[string]interface{}, rawSrc interface{}) (string, error) {
 	// Case-normalize all keys in data to lowercase to match struct json tags
-	data = toLowerKeys(data).(map[string]interface{})
+	data = toLowerKeysMap(data)
 
 	// Determine the document key
 	if key == "" {
@@ -277,7 +288,7 @@ func (s *RedisStore) Save(key, store string, src interface{}) (string, error) {
 		if err := s.executeRedisCommands(redisKey, redisOpts, "after_save"); err != nil {
 			return "", err
 		}
-		writebackRedisOpts(src, redisOpts)
+		writebackRedisOpts(rawSrc, redisOpts)
 		return key, nil
 	}
 
@@ -287,31 +298,27 @@ func (s *RedisStore) Save(key, store string, src interface{}) (string, error) {
 		return "", err
 	}
 
-	if err := s.client.Set(s.ctx, redisKey, serialized, 0).Err(); err != nil {
-		return "", err
-	}
-
 	// Execute after_save custom commands (default when)
 	if err := s.executeRedisCommands(redisKey, redisOpts, "after_save"); err != nil {
 		return "", err
 	}
 
-	// Apply TTL / expire_at / persist
-	if err := s.applyRedisOptions(redisKey, redisOpts); err != nil {
-		return "", err
-	}
+	pipe := s.client.Pipeline()
+	pipe.Set(s.context(), redisKey, serialized, 0)
+	s.applyRedisOptionsPipe(pipe, redisKey, redisOpts)
 
-	// Add key to ordered ZSET index
 	score := float64(time.Now().UnixNano())
 	zsetKey := fmt.Sprintf("gostore:index:%s", store)
-	if err := s.client.ZAdd(s.ctx, zsetKey, redis.Z{
+	pipe.ZAdd(s.context(), zsetKey, redis.Z{
 		Score:  score,
 		Member: key,
-	}).Err(); err != nil {
+	})
+
+	if _, err := pipe.Exec(s.context()); err != nil {
 		return "", err
 	}
 
-	writebackRedisOpts(src, redisOpts)
+	writebackRedisOpts(rawSrc, redisOpts)
 	return key, nil
 }
 
@@ -335,19 +342,28 @@ func (s *RedisStore) Update(key string, store string, src interface{}) error {
 		return err
 	}
 
-	b, err := marshalData(src)
-	if err != nil {
-		return err
-	}
 	var srcMap map[string]interface{}
-	if err := json.Unmarshal(b, &srcMap); err != nil {
-		return err
+	switch v := src.(type) {
+	case map[string]interface{}:
+		srcMap = v
+	case *map[string]interface{}:
+		if v != nil {
+			srcMap = *v
+		}
+	default:
+		b, err := marshalData(src)
+		if err != nil {
+			return err
+		}
+		if err := json.Unmarshal(b, &srcMap); err != nil {
+			return err
+		}
 	}
 
 	// Case-insensitively merge updates
 	mergeMapCaseInsensitive(existing, srcMap)
 
-	_, err = s.Save(key, store, existing)
+	_, err = s.saveData(key, store, existing, src)
 	return err
 }
 
@@ -377,16 +393,13 @@ func (s *RedisStore) Delete(key string, store string) error {
 	}
 
 	redisKey := s.storedKey(store, key)
-	if err := s.client.Del(s.ctx, redisKey).Err(); err != nil {
-		return err
-	}
-
 	zsetKey := fmt.Sprintf("gostore:index:%s", store)
-	if err := s.client.ZRem(s.ctx, zsetKey, key).Err(); err != nil {
-		return err
-	}
 
-	return nil
+	pipe := s.client.Pipeline()
+	pipe.Del(s.context(), redisKey)
+	pipe.ZRem(s.context(), zsetKey, key)
+	_, err = pipe.Exec(s.context())
+	return err
 }
 
 // All retrieves a paginated set of documents from the store.
@@ -568,7 +581,7 @@ func (s *RedisStore) FilterUpdate(filter map[string]interface{}, src interface{}
 	}
 
 	zsetKey := fmt.Sprintf("gostore:index:%s", store)
-	keys, err := s.client.ZRange(s.ctx, zsetKey, 0, -1).Result()
+	keys, err := s.client.ZRange(s.context(), zsetKey, 0, -1).Result()
 	if err != nil {
 		return err
 	}
@@ -592,7 +605,7 @@ func (s *RedisStore) FilterReplace(filter map[string]interface{}, src interface{
 	}
 
 	zsetKey := fmt.Sprintf("gostore:index:%s", store)
-	keys, err := s.client.ZRange(s.ctx, zsetKey, 0, -1).Result()
+	keys, err := s.client.ZRange(s.context(), zsetKey, 0, -1).Result()
 	if err != nil {
 		return err
 	}
@@ -621,18 +634,21 @@ func (s *RedisStore) FilterDelete(filter map[string]interface{}, store string, o
 // DeleteAll drops all keys in a store.
 func (s *RedisStore) DeleteAll(store string) error {
 	zsetKey := fmt.Sprintf("gostore:index:%s", store)
-	keys, err := s.client.ZRange(s.ctx, zsetKey, 0, -1).Result()
+	keys, err := s.client.ZRange(s.context(), zsetKey, 0, -1).Result()
 	if err != nil {
 		return err
 	}
 
-	for _, key := range keys {
-		redisKey := s.storedKey(store, key)
-		_ = s.client.Del(s.ctx, redisKey)
+	if len(keys) > 0 {
+		allKeys := make([]string, 0, len(keys)+1)
+		for _, key := range keys {
+			allKeys = append(allKeys, s.storedKey(store, key))
+		}
+		allKeys = append(allKeys, zsetKey)
+		return s.client.Del(s.context(), allKeys...).Err()
 	}
 
-	_ = s.client.Del(s.ctx, zsetKey)
-	return nil
+	return s.client.Del(s.context(), zsetKey).Err()
 }
 
 // FilterCount counts documents matching a filter.
@@ -647,7 +663,7 @@ func (s *RedisStore) FilterCount(filter map[string]interface{}, store string, op
 // Count returns the total key count in a store.
 func (s *RedisStore) Count(store string) (int, error) {
 	zsetKey := fmt.Sprintf("gostore:index:%s", store)
-	card, err := s.client.ZCard(s.ctx, zsetKey).Result()
+	card, err := s.client.ZCard(s.context(), zsetKey).Result()
 	return int(card), err
 }
 
@@ -664,7 +680,7 @@ func (s *RedisStore) Query(filter, aggregates map[string]interface{}, count int,
 	// Try O(1) primary key optimization
 	if id, found := extractPrimaryKey(filter, s.IDField); found {
 		redisKey := s.storedKey(store, id)
-		val, err := s.client.Get(s.ctx, redisKey).Result()
+		val, err := s.client.Get(s.context(), redisKey).Result()
 		if err != nil {
 			if err == redis.Nil {
 				return &RedisRows{entries: nil, ci: 0}, common.AggregateResult{}, nil
@@ -687,7 +703,7 @@ func (s *RedisStore) Query(filter, aggregates map[string]interface{}, count int,
 	}
 
 	zsetKey := fmt.Sprintf("gostore:index:%s", store)
-	keys, err := s.client.ZRange(s.ctx, zsetKey, 0, -1).Result()
+	keys, err := s.client.ZRange(s.context(), zsetKey, 0, -1).Result()
 	if err != nil {
 		return nil, nil, err
 	}
@@ -698,7 +714,7 @@ func (s *RedisStore) Query(filter, aggregates map[string]interface{}, count int,
 		for i, k := range keys {
 			redisKeys[i] = s.storedKey(store, k)
 		}
-		vals, err := s.client.MGet(s.ctx, redisKeys...).Result()
+		vals, err := s.client.MGet(s.context(), redisKeys...).Result()
 		if err != nil {
 			return nil, nil, err
 		}
@@ -725,7 +741,7 @@ func (s *RedisStore) Query(filter, aggregates map[string]interface{}, count int,
 		}
 
 		if len(expiredKeys) > 0 {
-			_ = s.client.ZRem(s.ctx, zsetKey, expiredKeys...).Err()
+			_ = s.client.ZRem(s.context(), zsetKey, expiredKeys...).Err()
 		}
 	}
 
@@ -868,16 +884,22 @@ func (s *RedisStore) GetByFieldsByField(name, val, store string, fields []string
 
 // BatchDelete deletes multiple keys.
 func (s *RedisStore) BatchDelete(ids []interface{}, store string, opts common.ObjectStoreOptions) (err error) {
+	if len(ids) == 0 {
+		return nil
+	}
+	zsetKey := fmt.Sprintf("gostore:index:%s", store)
+	pipe := s.client.Pipeline()
 	for _, id := range ids {
 		keyStr, ok := id.(string)
 		if !ok {
 			return fmt.Errorf("invalid ID type: %T", id)
 		}
-		if err := s.Delete(keyStr, store); err != nil {
-			return err
-		}
+		redisKey := s.storedKey(store, keyStr)
+		pipe.Del(s.context(), redisKey)
+		pipe.ZRem(s.context(), zsetKey, keyStr)
 	}
-	return nil
+	_, err = pipe.Exec(s.context())
+	return err
 }
 
 // BatchUpdate updates multiple documents completely matching MemoryStore.
@@ -893,22 +915,36 @@ func (s *RedisStore) BatchUpdate(ids []interface{}, data []interface{}, store st
 	if len(ids) != len(data) {
 		return fmt.Errorf("number of IDs and data must match")
 	}
+	if len(ids) == 0 {
+		return nil
+	}
+
+	redisKeys := make([]string, len(ids))
 	for i, id := range ids {
 		keyStr, ok := id.(string)
 		if !ok {
 			return fmt.Errorf("invalid ID type: %T", id)
 		}
+		redisKeys[i] = s.storedKey(store, keyStr)
+	}
 
-		// Verify document key exists before updating, matching MemoryStore
-		redisKey := s.storedKey(store, keyStr)
-		existsNum, err := s.client.Exists(s.ctx, redisKey).Result()
-		if err != nil {
-			return err
-		}
-		if existsNum == 0 {
+	pipe := s.client.Pipeline()
+	existsCmds := make([]*redis.IntCmd, len(redisKeys))
+	for i, rk := range redisKeys {
+		existsCmds[i] = pipe.Exists(s.context(), rk)
+	}
+	if _, err := pipe.Exec(s.context()); err != nil {
+		return err
+	}
+
+	for _, cmd := range existsCmds {
+		if cmd.Val() == 0 {
 			return common.ErrNotFound
 		}
+	}
 
+	for i, id := range ids {
+		keyStr := id.(string)
 		if err := s.Replace(keyStr, store, data[i]); err != nil {
 			return err
 		}
@@ -962,14 +998,18 @@ func getFieldCaseInsensitive(m map[string]interface{}, name string) (interface{}
 	return nil, false
 }
 
+func toLowerKeysMap(m map[string]interface{}) map[string]interface{} {
+	res := make(map[string]interface{}, len(m))
+	for k, item := range m {
+		res[strings.ToLower(k)] = toLowerKeys(item)
+	}
+	return res
+}
+
 func toLowerKeys(val interface{}) interface{} {
 	switch v := val.(type) {
 	case map[string]interface{}:
-		res := make(map[string]interface{})
-		for k, item := range v {
-			res[strings.ToLower(k)] = toLowerKeys(item)
-		}
-		return res
+		return toLowerKeysMap(v)
 	case []interface{}:
 		res := make([]interface{}, len(v))
 		for i, item := range v {
@@ -1020,14 +1060,21 @@ func matchFilter(data map[string]interface{}, filter map[string]interface{}) boo
 
 		val, exists := data[cleanKey]
 		if !exists {
-			val, exists = getValueAtPath(data, cleanKey)
+			lowerClean := strings.ToLower(cleanKey)
+			val, exists = data[lowerClean]
 			if !exists {
-				// Try with the original key just in case
-				val, exists = data[k]
+				val, exists = getValueAtPath(data, cleanKey)
 				if !exists {
-					val, exists = getValueAtPath(data, k)
+					val, exists = data[k]
 					if !exists {
-						return false
+						lowerK := strings.ToLower(k)
+						val, exists = data[lowerK]
+						if !exists {
+							val, exists = getValueAtPath(data, k)
+							if !exists {
+								return false
+							}
+						}
 					}
 				}
 			}
@@ -1464,7 +1511,7 @@ func (s *RedisStore) executeRedisCommands(redisKey string, optsMap map[string]in
 			args = append(args, rawArgs...)
 		}
 
-		res, err := s.client.Do(s.ctx, args...).Result()
+		res, err := s.client.Do(s.context(), args...).Result()
 		if err != nil {
 			return fmt.Errorf("redis command %s (when=%s): %w", cmdName, cmdWhen, err)
 		}
@@ -1520,6 +1567,56 @@ func writebackRedisOpts(src interface{}, redisOpts map[string]interface{}) {
 	}
 }
 
+func (s *RedisStore) applyRedisOptionsPipe(pipe redis.Pipeliner, redisKey string, optsMap map[string]interface{}) {
+	if optsMap == nil {
+		return
+	}
+
+	if persistVal, ok := optsMap["persist"]; ok {
+		if persistBool, ok := persistVal.(bool); ok && persistBool {
+			pipe.Persist(s.context(), redisKey)
+		}
+	}
+
+	if expireAtVal, ok := optsMap["expire_at"]; ok {
+		var expireTime time.Time
+		var validTime bool
+
+		if secFloat, ok := toFloat64(expireAtVal); ok {
+			expireTime = time.Unix(int64(secFloat), 0)
+			validTime = true
+		} else if secStr, ok := expireAtVal.(string); ok {
+			if t, err := time.Parse(time.RFC3339, secStr); err == nil {
+				expireTime = t
+				validTime = true
+			}
+		}
+
+		if validTime {
+			pipe.ExpireAt(s.context(), redisKey, expireTime)
+		}
+	}
+
+	if ttlVal, ok := optsMap["ttl"]; ok {
+		var ttlDuration time.Duration
+		var validTTL bool
+
+		if secFloat, ok := toFloat64(ttlVal); ok {
+			ttlDuration = time.Duration(secFloat * float64(time.Second))
+			validTTL = true
+		} else if ttlStr, ok := ttlVal.(string); ok {
+			if d, err := time.ParseDuration(ttlStr); err == nil {
+				ttlDuration = d
+				validTTL = true
+			}
+		}
+
+		if validTTL && ttlDuration > 0 {
+			pipe.Expire(s.context(), redisKey, ttlDuration)
+		}
+	}
+}
+
 func (s *RedisStore) applyRedisOptions(redisKey string, optsMap map[string]interface{}) error {
 	if optsMap == nil {
 		return nil
@@ -1528,7 +1625,7 @@ func (s *RedisStore) applyRedisOptions(redisKey string, optsMap map[string]inter
 	// 1. Persist option
 	if persistVal, ok := optsMap["persist"]; ok {
 		if persistBool, ok := persistVal.(bool); ok && persistBool {
-			return s.client.Persist(s.ctx, redisKey).Err()
+			return s.client.Persist(s.context(), redisKey).Err()
 		}
 	}
 
@@ -1548,7 +1645,7 @@ func (s *RedisStore) applyRedisOptions(redisKey string, optsMap map[string]inter
 		}
 
 		if validTime {
-			return s.client.ExpireAt(s.ctx, redisKey, expireTime).Err()
+			return s.client.ExpireAt(s.context(), redisKey, expireTime).Err()
 		}
 	}
 
@@ -1568,7 +1665,7 @@ func (s *RedisStore) applyRedisOptions(redisKey string, optsMap map[string]inter
 		}
 
 		if validTTL && ttlDuration > 0 {
-			return s.client.Expire(s.ctx, redisKey, ttlDuration).Err()
+			return s.client.Expire(s.context(), redisKey, ttlDuration).Err()
 		}
 	}
 
