@@ -367,6 +367,24 @@ func Test_getQueryValue(t *testing.T) {
 			},
 			`+data.label:".*end$"`,
 		},
+		{
+			"test boolean true",
+			args{
+				"store",
+				"is_active",
+				true,
+			},
+			`+data.is_active:T*`,
+		},
+		{
+			"test boolean false",
+			args{
+				"store",
+				"is_active",
+				false,
+			},
+			`+data.is_active:F*`,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

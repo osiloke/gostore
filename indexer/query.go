@@ -17,6 +17,23 @@ func reduceValueLenght(v string) string {
 	return v
 }
 
+// formatted builds a Bleve query string for a field comparison.
+//
+// fieldPrefix is the optional query prefix for the field, such as a
+// boolean operator. prefix is the comparison operator text (for example
+// "<" or ">"). field is the data field name. valRune is the value
+// expression as runes, where the first rune indicates the comparison
+// value type (for example "d" for date or "n" for numeric) and the
+// remaining runes contain the actual value.
+//
+// Examples:
+//
+//	formatted("+", "<", "created", []rune("d2016-12-12"))
+//	  -> "+data.created:<"2016-12-12""
+//	formatted("", ">", "price", []rune("n100"))
+//	  -> "data.price:>=100"
+//
+// The returned query string is trimmed of surrounding spaces.
 func formatted(fieldPrefix, prefix, field string, valRune []rune) (queryString string) {
 	v := strings.TrimSpace(string(valRune[1:]))
 	v = strings.Replace(v, "\"", "", -1)
@@ -98,7 +115,11 @@ func getQueryValue(store, k string, v interface{}) string {
 			queryString = fmt.Sprintf(`%sdata.%s:"%v"`, prefix, k, reduceValueLenght(string(fmt.Sprintf("%v", v))))
 		}
 	} else if _v, ok := v.(bool); ok {
-		queryString = fmt.Sprintf(`+data.%s:"%v"`, k, _v)
+		val := "F*"
+		if _v {
+			val = "T*"
+		}
+		queryString = fmt.Sprintf(`+data.%s:%s`, k, val)
 	} else {
 		logger.Warn(store+" QueryString ["+k+"] was not parsed - defaulting to raw text", "value", v, "type", reflect.TypeOf(v))
 		queryString = fmt.Sprintf(`+data.%s:"%v"`, k, v)
