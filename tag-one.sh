@@ -12,6 +12,9 @@ REMOTE_NAME="origin"
 
 # --- Script Logic ---
 
+ALLOW_MAJOR_ARG=""
+MODULE_PATH=""
+
 # Function to display help message
 help_message() {
     echo "Usage: $0 <module-path> [OPTIONS]"
@@ -22,31 +25,35 @@ help_message() {
     echo "  <module-path>    The path to the Go module (e.g., ./pool, ./cli)"
     echo ""
     echo "Options:"
+    echo "  --allow-major    Allow major semantic version updates (breaking changes)"
     echo "  -h, --help       Display this help message"
     echo ""
     echo "Examples:"
     echo "  $0 ./pool"
-    echo "  $0 ./cli"
+    echo "  $0 ./cli --allow-major"
     exit 0
 }
 
-# Check for help command
-if [[ "$1" == "-h" || "$1" == "--help" ]]; then
+for arg in "$@"; do
+  if [ "$arg" = "--allow-major" ]; then
+    ALLOW_MAJOR_ARG="--allow-major"
+  elif [[ "$arg" == "-h" || "$arg" == "--help" ]]; then
     help_message
-fi
+  else
+    MODULE_PATH=$arg
+  fi
+done
 
 # Check if a module path is provided
-if [ -z "$1" ]; then
+if [ -z "$MODULE_PATH" ]; then
     echo "Error: Missing <module-path> argument."
     echo "Use '$0 --help' for more information."
     exit 1
 fi
 
-MODULE_PATH=$1
-
 # Get the next version from the get-next-version.sh script
 echo "Determining next version for module '$MODULE_PATH'..."
-VERSION=$(./get-next-version.sh $MODULE_PATH)
+VERSION=$(./get-next-version.sh $MODULE_PATH $ALLOW_MAJOR_ARG)
 
 if [ -z "$VERSION" ]; then
     echo "Error: Could not determine next version."

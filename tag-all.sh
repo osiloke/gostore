@@ -11,6 +11,28 @@ REMOTE_NAME="origin"
 
 # --- Script Logic ---
 
+ALLOW_MAJOR_ARG=""
+
+help_message() {
+    echo "Usage: $0 [OPTIONS]"
+    echo ""
+    echo "This script creates and pushes version tags for all Go modules in the workspace."
+    echo ""
+    echo "Options:"
+    echo "  --allow-major    Allow major semantic version updates (breaking changes)"
+    echo "  -h, --help       Display this help message"
+    echo ""
+    exit 0
+}
+
+for arg in "$@"; do
+  if [ "$arg" = "--allow-major" ]; then
+    ALLOW_MAJOR_ARG="--allow-major"
+  elif [[ "$arg" == "-h" || "$arg" == "--help" ]]; then
+    help_message
+  fi
+done
+
 # Fetch the latest tags from the remote to avoid conflicts
 echo "Fetching latest tags from remote '$REMOTE_NAME'..."
 git fetch "$REMOTE_NAME" --tags
@@ -18,7 +40,7 @@ echo ""
 
 # Get the next version from the get-next-version.sh script
 echo "Determining next version..."
-VERSION=$(./get-next-version.sh)
+VERSION=$(./get-next-version.sh $ALLOW_MAJOR_ARG)
 
 if [ -z "$VERSION" ]; then
     echo "Error: Could not determine next version."

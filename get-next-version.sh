@@ -5,7 +5,16 @@
 
 set -e
 
-MODULE_PATH=$1
+ALLOW_MAJOR=false
+MODULE_PATH=""
+
+for arg in "$@"; do
+  if [ "$arg" = "--allow-major" ]; then
+    ALLOW_MAJOR=true
+  elif [ -n "$arg" ]; then
+    MODULE_PATH=$arg
+  fi
+done
 
 # If a module path is provided, find the latest tag for that module.
 if [ -n "$MODULE_PATH" ]; then
@@ -40,6 +49,12 @@ else
   BUMP_TYPE="patch" # Default bump
   if echo "$COMMITS" | grep -q "BREAKING CHANGE"; then
     BUMP_TYPE="major"
+    if [ "$ALLOW_MAJOR" = "false" ]; then
+      echo "Error: BREAKING CHANGE detected, which requires a major version bump." >&2
+      echo "Major semantic version updates are not allowed by default." >&2
+      echo "Please run with --allow-major to permit this update." >&2
+      exit 1
+    fi
   elif echo "$COMMITS" | grep -qE "^[a-f0-9]+ feat(\(.*\))?:"; then
     BUMP_TYPE="minor"
   elif echo "$COMMITS" | grep -qE "^[a-f0-9]+ fix(\(.*\))?:"; then
