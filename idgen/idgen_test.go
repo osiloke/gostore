@@ -30,10 +30,10 @@ func TestFactoryAndConfig(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "ulid", ulidGen.Name())
 
-	// Test New with Snowflake strategy (should fail)
-	_, err = idgen.New(idgen.Config{Strategy: idgen.StrategySnowflake})
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "snowflake not yet implemented")
+	// Test New with Snowflake strategy
+	snowflakeGen, err := idgen.New(idgen.Config{Strategy: idgen.StrategySnowflake})
+	require.NoError(t, err)
+	assert.Equal(t, "snowflake", snowflakeGen.Name())
 
 	// Test New with unknown strategy
 	_, err = idgen.New(idgen.Config{Strategy: "unknown"})
@@ -157,9 +157,64 @@ func TestULIDMonotonicity(t *testing.T) {
 	assert.True(t, id1.String < id2.String, "second ULID must be lexicographically greater than first")
 }
 
+func TestSnowflakeStrategy(t *testing.T) {
+	// Test constructor validation
+	_, err := idgen.New(idgen.Config{
+		Strategy: idgen.StrategySnowflake,
+		Snowflake: idgen.SnowflakeOptions{DatacenterID: 32},
+	})
+	assert.Error(t, err)
+
+	_, err = idgen.New(idgen.Config{
+		Strategy: idgen.StrategySnowflake,
+		Snowflake: idgen.SnowflakeOptions{MachineID: -1},
+	})
+	assert.Error(t, err)
+
+	gen, err := idgen.New(idgen.Config{
+		Strategy: idgen.StrategySnowflake,
+		Snowflake: idgen.SnowflakeOptions{
+			DatacenterID: 12,
+			MachineID:    24,
+		},
+	})
+	require.NoError(t, err)
+
+	ctx := context.Background()
+
+	// 1. Test Generate
+	id, err := gen.Generate(ctx)
+	require.NoError(t, err)
+	assert.Len(t, id.Raw, 8)
+	assert.NotEmpty(t, id.String)
+	assert.True(t, id.Sortable)
+	assert.WithinDuration(t, time.Now(), id.Time, 2*time.Second)
+
+	// 2. Test Parser
+	extractor, ok := gen.(idgen.Extractor)
+	require.True(t, ok, "generator must implement Extractor")
+
+	parsedID, err := extractor.Parse(id.String)
+	require.NoError(t, err)
+	assert.Equal(t, id.Raw, parsedID.Raw)
+	assert.Equal(t, id.String, parsedID.String)
+	assert.Equal(t, id.Time.UnixMilli(), parsedID.Time.UnixMilli())
+
+	extractedTime, err := extractor.Time(id.String)
+	require.NoError(t, err)
+	assert.Equal(t, id.Time.UnixMilli(), extractedTime.UnixMilli())
+
+	// 3. Test Invalid Inputs
+	_, err = extractor.Parse("invalid_snowflake")
+	assert.Error(t, err)
+
+	_, err = extractor.Time("invalid_snowflake")
+	assert.Error(t, err)
+}
+
 func TestConcurrencySafety(t *testing.T) {
-	// Test both generators concurrently
-	strategies := []string{idgen.StrategyObjectId, idgen.StrategyULID}
+	// Test all three generators concurrently
+	strategies := []string{idgen.StrategyObjectId, idgen.StrategyULID, idgen.StrategySnowflake}
 
 	for _, strategy := range strategies {
 		t.Run(strategy, func(t *testing.T) {
