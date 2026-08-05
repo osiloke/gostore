@@ -4,10 +4,7 @@ import (
 	"encoding/json"
 
 	"dario.cat/mergo"
-	common "github.com/osiloke/gostore/common"
 )
-
-var logger = common.Logger("redis")
 
 // RedisRows implements the common.ObjectRows interface.
 type RedisRows struct {

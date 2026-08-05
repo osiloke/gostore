@@ -1451,7 +1451,7 @@ func (s *RedisStore) validateRedisCommands(optsMap map[string]interface{}) error
 // against the allow-list; commands that are not allowed are skipped with an
 // error logged. Custom command execution must be enabled via
 // WithCustomCommandsEnabled, otherwise execution is skipped entirely.
-func (s *RedisStore) executeRedisCommands(redisKey string, optsMap map[string]interface{}, when string) error {
+func (s *RedisStore) executeRedisCommands(_ string, optsMap map[string]interface{}, when string) error {
 	if optsMap == nil {
 		return nil
 	}
@@ -1615,59 +1615,4 @@ func (s *RedisStore) applyRedisOptionsPipe(pipe redis.Pipeliner, redisKey string
 			pipe.Expire(s.context(), redisKey, ttlDuration)
 		}
 	}
-}
-
-func (s *RedisStore) applyRedisOptions(redisKey string, optsMap map[string]interface{}) error {
-	if optsMap == nil {
-		return nil
-	}
-
-	// 1. Persist option
-	if persistVal, ok := optsMap["persist"]; ok {
-		if persistBool, ok := persistVal.(bool); ok && persistBool {
-			return s.client.Persist(s.context(), redisKey).Err()
-		}
-	}
-
-	// 2. Absolute time of expiration (expire_at)
-	if expireAtVal, ok := optsMap["expire_at"]; ok {
-		var expireTime time.Time
-		var validTime bool
-
-		if secFloat, ok := toFloat64(expireAtVal); ok {
-			expireTime = time.Unix(int64(secFloat), 0)
-			validTime = true
-		} else if secStr, ok := expireAtVal.(string); ok {
-			if t, err := time.Parse(time.RFC3339, secStr); err == nil {
-				expireTime = t
-				validTime = true
-			}
-		}
-
-		if validTime {
-			return s.client.ExpireAt(s.context(), redisKey, expireTime).Err()
-		}
-	}
-
-	// 3. TTL duration
-	if ttlVal, ok := optsMap["ttl"]; ok {
-		var ttlDuration time.Duration
-		var validTTL bool
-
-		if secFloat, ok := toFloat64(ttlVal); ok {
-			ttlDuration = time.Duration(secFloat * float64(time.Second))
-			validTTL = true
-		} else if ttlStr, ok := ttlVal.(string); ok {
-			if d, err := time.ParseDuration(ttlStr); err == nil {
-				ttlDuration = d
-				validTTL = true
-			}
-		}
-
-		if validTTL && ttlDuration > 0 {
-			return s.client.Expire(s.context(), redisKey, ttlDuration).Err()
-		}
-	}
-
-	return nil
 }
