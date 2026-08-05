@@ -531,16 +531,16 @@ func Test_FilterDelete(t *testing.T, db common.ObjectStore) {
 		expectingError bool
 	}{
 		{
-			name:          "Delete with filter (MemoryStore deletes all)",
+			name:          "Delete with filter",
 			filter:        map[string]interface{}{"Name": "A"},
-			expectedCount: 0, // MemoryStore's FilterDelete clears the whole table
-			remainingIDs:  []string{},
+			expectedCount: 1,
+			remainingIDs:  []string{"2"},
 		},
 		{
-			name:          "Delete with no matching filter (MemoryStore still deletes all)",
+			name:          "Delete with no matching filter",
 			filter:        map[string]interface{}{"Name": "C"},
-			expectedCount: 0,
-			remainingIDs:  []string{},
+			expectedCount: 3,
+			remainingIDs:  []string{"1", "2", "3"},
 		},
 		{
 			name:           "Delete from non-existent store",
@@ -689,21 +689,21 @@ func Test_GetByField(t *testing.T, db common.ObjectStore) {
 		name        string
 		fieldName   string
 		fieldValue  interface{}
-		expectedDoc TestDocument
+		allowedDocs []TestDocument
 		expectErr   error
 	}{
 		{
 			name:        "GetByField with existing field (MemoryStore returns first match)",
 			fieldName:   "Name",
 			fieldValue:  "Second",
-			expectedDoc: doc1, // MemoryStore iterates and returns the first doc that has the field, not necessarily matching value
+			allowedDocs: []TestDocument{doc1, doc2}, // The in-memory store returns the first doc that has the field, not necessarily matching value; iteration order is undefined
 			expectErr:   nil,
 		},
 		{
 			name:        "GetByField with non-existent value (MemoryStore still returns first)",
 			fieldName:   "Name",
 			fieldValue:  "NonExistent",
-			expectedDoc: doc1,
+			allowedDocs: []TestDocument{doc1, doc2},
 			expectErr:   nil,
 		},
 		{
@@ -724,7 +724,7 @@ func Test_GetByField(t *testing.T, db common.ObjectStore) {
 				assert.Equal(t, tt.expectErr, err, "Expected error mismatch")
 			} else {
 				require.NoError(t, err, "GetByField returned an unexpected error")
-				assert.Equal(t, tt.expectedDoc, actualDoc, "Retrieved document mismatch")
+				assert.Contains(t, tt.allowedDocs, actualDoc, "Retrieved document mismatch")
 			}
 		})
 	}
@@ -1071,18 +1071,25 @@ func Test_FilterGetAll(t *testing.T, db common.ObjectStore) {
 		expectedLen int
 	}{
 		{
-			name:        "Filter with match (MemoryStore ignores filter, returns all)",
+			name:        "Filter with match",
 			filter:      map[string]interface{}{"Name": "A"},
 			count:       10,
 			skip:        0,
-			expectedLen: 4,
+			expectedLen: 2,
 		},
 		{
-			name:        "Filter with pagination (MemoryStore ignores filter)",
+			name:        "Filter with q-wrapper",
+			filter:      map[string]interface{}{"q": map[string]interface{}{"Name": "B"}},
+			count:       10,
+			skip:        0,
+			expectedLen: 1,
+		},
+		{
+			name:        "Filter with pagination",
 			filter:      map[string]interface{}{"Name": "A"},
 			count:       1,
 			skip:        0,
-			expectedLen: 1, // MemoryStore calls All(1, 0, store)
+			expectedLen: 1,
 		},
 		{
 			name:        "No filter, retrieve all with pagination",
@@ -1092,11 +1099,11 @@ func Test_FilterGetAll(t *testing.T, db common.ObjectStore) {
 			expectedLen: 2,
 		},
 		{
-			name:        "Filter returns no results (expected 0 - MemoryStore ignores filter)",
+			name:        "Filter returns no results",
 			filter:      map[string]interface{}{"Name": "Zebra"},
 			count:       10,
 			skip:        0,
-			expectedLen: 4, // MemoryStore calls All(10, 0, store)
+			expectedLen: 0,
 		},
 	}
 
@@ -1121,8 +1128,6 @@ func Test_FilterGetAll(t *testing.T, db common.ObjectStore) {
 				count++
 			}
 			assert.Equal(t, tt.expectedLen, count, "Number of returned rows mismatch")
-			// Cannot assert specific IDs for FilterGetAll without implementing filter logic
-			// in the generic test, as MemoryStore's current implementation is a passthrough to All.
 		})
 	}
 
@@ -1154,16 +1159,22 @@ func Test_FilterGet(t *testing.T, db common.ObjectStore) {
 		expectErr   error
 	}{
 		{
-			name:        "FilterGet with filter (returns first - MemoryStore ignores filter)",
+			name:        "FilterGet with filter",
 			filter:      map[string]interface{}{"Name": "Second"}, // Filter for second doc
-			expectedDoc: doc1,                                     // MemoryStore returns the first one in iteration order
+			expectedDoc: doc2,
 			expectErr:   nil,
 		},
 		{
-			name:        "FilterGet with no matching filter (MemoryStore ignores filter)",
-			filter:      map[string]interface{}{"Name": "NonExistent"},
-			expectedDoc: doc1, // Still returns the first due to no filter implementation
+			name:        "FilterGet with q-wrapper",
+			filter:      map[string]interface{}{"q": map[string]interface{}{"Name": "First"}},
+			expectedDoc: doc1,
 			expectErr:   nil,
+		},
+		{
+			name:        "FilterGet with no matching filter",
+			filter:      map[string]interface{}{"Name": "NonExistent"},
+			expectedDoc: TestDocument{},
+			expectErr:   common.ErrNotFound,
 		},
 	}
 
@@ -1206,7 +1217,7 @@ func Test_FilterUpdate(t *testing.T, db common.ObjectStore) {
 	_, err = db.Save(doc2.ID, store, doc2)
 	require.NoError(t, err)
 
-	t.Run("FilterUpdate (updates all in MemoryStore currently)", func(t *testing.T) {
+	t.Run("FilterUpdate updates only matching documents", func(t *testing.T) {
 		update := map[string]interface{}{"Value": 99}
 		err := db.FilterUpdate(map[string]interface{}{"Name": "A"}, update, store, nil)
 		require.NoError(t, err, "FilterUpdate returned an unexpected error")
@@ -1215,9 +1226,8 @@ func Test_FilterUpdate(t *testing.T, db common.ObjectStore) {
 		db.Get("1", store, &updatedDoc1)
 		db.Get("2", store, &updatedDoc2)
 
-		// MemoryStore's implementation updates all documents, ignoring the filter
 		assert.Equal(t, 99, updatedDoc1.Value)
-		assert.Equal(t, 99, updatedDoc2.Value)
+		assert.Equal(t, 20, updatedDoc2.Value, "Non-matching document should not be updated")
 	})
 }
 
@@ -1233,7 +1243,7 @@ func Test_FilterReplace(t *testing.T, db common.ObjectStore) {
 	_, err = db.Save(doc2.ID, store, doc2)
 	require.NoError(t, err)
 
-	t.Run("FilterReplace (replaces all in MemoryStore currently)", func(t *testing.T) {
+	t.Run("FilterReplace replaces only matching documents", func(t *testing.T) {
 		replacement := TestDocument{Name: "Replaced", Value: 100}
 		err := db.FilterReplace(map[string]interface{}{"Name": "A"}, replacement, store, nil)
 		require.NoError(t, err, "FilterReplace returned an unexpected error")
@@ -1242,10 +1252,9 @@ func Test_FilterReplace(t *testing.T, db common.ObjectStore) {
 		db.Get("1", store, &updatedDoc1)
 		db.Get("2", store, &updatedDoc2)
 
-		// MemoryStore's implementation replaces all documents, ignoring the filter
 		assert.Equal(t, "Replaced", updatedDoc1.Name)
 		assert.Equal(t, 100, updatedDoc1.Value)
-		assert.Equal(t, "Replaced", updatedDoc2.Name)
-		assert.Equal(t, 100, updatedDoc2.Value)
+		assert.Equal(t, "B", updatedDoc2.Name, "Non-matching document should not be replaced")
+		assert.Equal(t, 20, updatedDoc2.Value, "Non-matching document should not be replaced")
 	})
 }
