@@ -339,6 +339,32 @@ func (s *MemoryStore) FilterReplace(filter map[string]interface{}, src interface
 	return nil
 }
 
+func matchesFilter(item interface{}, filter map[string]interface{}) bool {
+	if len(filter) == 0 {
+		return true
+	}
+	itemMap, ok := item.(map[string]interface{})
+	if !ok {
+		dataBytes, err := json.Marshal(item)
+		if err != nil {
+			return false
+		}
+		if err := json.Unmarshal(dataBytes, &itemMap); err != nil {
+			return false
+		}
+	}
+	for k, targetVal := range filter {
+		val, ok := itemMap[k]
+		if !ok {
+			return false
+		}
+		if fmt.Sprintf("%v", val) != fmt.Sprintf("%v", targetVal) {
+			return false
+		}
+	}
+	return true
+}
+
 // FilterGet retrieves a document matching a filter.
 func (s *MemoryStore) FilterGet(filter map[string]interface{}, store string, dst interface{}, opts ObjectStoreOptions) error {
 	s.Lock()
@@ -346,9 +372,10 @@ func (s *MemoryStore) FilterGet(filter map[string]interface{}, store string, dst
 
 	logger.Info("FilterGet", "filter", filter, "store", store)
 
-	// Currently, this method does not perform filtering. It simply retrieves the first document.
 	for _, v := range s.stores[store] {
-		return unmarshalData(v, dst)
+		if matchesFilter(v, filter) {
+			return unmarshalData(v, dst)
+		}
 	}
 	return common.ErrNotFound
 }
