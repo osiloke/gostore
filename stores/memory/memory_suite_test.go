@@ -27,8 +27,8 @@ func TestMemoryStoreSuite(t *testing.T) {
 	t.Run("Test_GetByField", func(t *testing.T) { gostoretesting.Test_GetByField(t, db) })
 	t.Run("Test_GetByFieldsByField", func(t *testing.T) { gostoretesting.Test_GetByFieldsByField(t, db) })
 
-	// Filtered operations (highlighting current MemoryStore's non-filtering behavior)
-	t.Run("Test_Query", func(t *testing.T) { gostoretesting.Test_Query(t, db) }) // Query is also a "filtered" operation
+	// Filtered operations
+	t.Run("Test_Query", func(t *testing.T) { gostoretesting.Test_Query(t, db) })
 	t.Run("Test_FilterGetAll", func(t *testing.T) { gostoretesting.Test_FilterGetAll(t, db) })
 	t.Run("Test_FilterGet", func(t *testing.T) { gostoretesting.Test_FilterGet(t, db) })
 	t.Run("Test_FilterUpdate", func(t *testing.T) { gostoretesting.Test_FilterUpdate(t, db) })

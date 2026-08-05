@@ -19,21 +19,28 @@ type TransactionRows struct {
 // Next get next item
 func (s *TransactionRows) Next(dst interface{}) (bool, error) {
 	length := len(s.entries)
-	var err error
 	if s.ci < length {
 		val := s.entries[s.ci]
-		if _dst, ok := dst.(map[string]interface{}); ok {
-			err = mergo.Map(&_dst, val.(map[string]interface{}))
-			if err != nil {
-				return false, nil
-			}
-		} else {
-			dst = val
-		}
 		s.ci++
-		return true, err
+		var err error
+		switch d := dst.(type) {
+		case map[string]interface{}:
+			err = mergo.Map(&d, val.(map[string]interface{}))
+		case *map[string]interface{}:
+			err = mergo.Map(d, val.(map[string]interface{}))
+		default:
+			b, mErr := json.Marshal(val)
+			if mErr != nil {
+				return false, mErr
+			}
+			err = json.Unmarshal(b, dst)
+		}
+		if err != nil {
+			return false, err
+		}
+		return true, nil
 	}
-	return false, common.ErrEOF
+	return false, nil
 }
 
 // NextRaw get next raw item

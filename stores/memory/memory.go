@@ -4,6 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"reflect"
+	"regexp"
+	"strings"
 	"sync"
 
 	. "github.com/osiloke/gostore/common"
@@ -106,32 +109,40 @@ func (s *MemoryStore) AllWithinRange(filter map[string]interface{}, count int, s
 	s.Lock()
 	defer s.Unlock()
 
-	// Currently, this method does not perform filtering. It simply returns all documents
-	// within the specified range.
-	return s.All(count, skip, store)
+	rows := make([]interface{}, 0)
+	i := 0
+	for _, v := range s.stores[store] {
+		if matchesFilter(v, filter) {
+			if i >= skip {
+				rows = append(rows, v)
+			}
+			i++
+		}
+	}
+	if len(rows) > count {
+		rows = rows[:count]
+	}
+
+	return &TransactionRows{
+		entries: rows,
+	}, nil
 }
 
-// Since retrieves all documents after a specific ID.
+// Since retrieves all documents, as the in-memory store has no ordering.
 func (s *MemoryStore) Since(id string, count int, skip int, store string) (ObjectRows, error) {
 	s.Lock()
 	defer s.Unlock()
 
 	rows := make([]interface{}, 0)
-	found := false
 	i := 0
 	for _, v := range s.stores[store] {
-		if found {
-			if i >= skip && i < skip+count {
-				rows = append(rows, v)
-			}
-			i++
-		} else {
-			if _, ok := v.(map[string]interface{})["id"]; ok {
-				if v.(map[string]interface{})["id"] == id {
-					found = true
-				}
-			}
+		if i >= skip {
+			rows = append(rows, v)
 		}
+		i++
+	}
+	if len(rows) > count {
+		rows = rows[:count]
 	}
 
 	return &TransactionRows{
@@ -139,27 +150,21 @@ func (s *MemoryStore) Since(id string, count int, skip int, store string) (Objec
 	}, nil
 }
 
-// Before retrieves all documents before a specific ID.
+// Before retrieves all documents, as the in-memory store has no ordering.
 func (s *MemoryStore) Before(id string, count int, skip int, store string) (ObjectRows, error) {
 	s.Lock()
 	defer s.Unlock()
 
 	rows := make([]interface{}, 0)
-	found := false
 	i := 0
 	for _, v := range s.stores[store] {
-		if !found {
-			if _, ok := v.(map[string]interface{})["id"]; ok {
-				if v.(map[string]interface{})["id"] == id {
-					found = true
-				} else {
-					if i >= skip && i < skip+count {
-						rows = append(rows, v)
-					}
-					i++
-				}
-			}
+		if i >= skip {
+			rows = append(rows, v)
 		}
+		i++
+	}
+	if len(rows) > count {
+		rows = rows[:count]
 	}
 
 	return &TransactionRows{
@@ -167,48 +172,23 @@ func (s *MemoryStore) Before(id string, count int, skip int, store string) (Obje
 	}, nil
 }
 
-// FilterSince retrieves all documents after a specific ID and matching a filter.
+// FilterSince retrieves all documents, as the in-memory store has no ordering.
 func (s *MemoryStore) FilterSince(id string, filter map[string]interface{}, count int, skip int, store string, opts ObjectStoreOptions) (ObjectRows, error) {
-	s.Lock()
-	defer s.Unlock()
-
-	// Currently, this method does not perform filtering. It simply returns all documents
-	// after the specified ID.
 	return s.Since(id, count, skip, store)
 }
 
-// FilterBefore retrieves all documents before a specific ID and matching a filter.
+// FilterBefore retrieves all documents, as the in-memory store has no ordering.
 func (s *MemoryStore) FilterBefore(id string, filter map[string]interface{}, count int, skip int, store string, opts ObjectStoreOptions) (ObjectRows, error) {
-	s.Lock()
-	defer s.Unlock()
-
-	// Currently, this method does not perform filtering. It simply returns all documents
-	// before the specified ID.
 	return s.Before(id, count, skip, store)
 }
 
-// FilterBeforeCount counts all documents before a specific ID and matching a filter.
+// FilterBeforeCount counts all documents, as the in-memory store has no ordering.
 func (s *MemoryStore) FilterBeforeCount(id string, filter map[string]interface{}, size int, skip int, store string, opts ObjectStoreOptions) (int64, error) {
-	s.Lock()
-	defer s.Unlock()
-
-	// Currently, this method does not perform filtering. It simply counts all documents
-	// before the specified ID.
-	found := false
-	count := 0
-	for _, v := range s.stores[store] {
-		if !found {
-			if _, ok := v.(map[string]interface{})["id"]; ok {
-				if v.(map[string]interface{})["id"] == id {
-					found = true
-				} else {
-					count++
-				}
-			}
-		}
+	rows, err := s.FilterBefore(id, filter, size, skip, store, opts)
+	if err != nil {
+		return 0, err
 	}
-
-	return int64(count), nil
+	return int64(len(rows.(*TransactionRows).entries)), nil
 }
 
 // Get retrieves a document by its key.
@@ -229,7 +209,10 @@ func (s *MemoryStore) Get(key string, store string, dst interface{}) error {
 func (s *MemoryStore) Save(key, store string, src interface{}) (string, error) {
 	s.Lock()
 	defer s.Unlock()
+	return s.save(key, store, src)
+}
 
+func (s *MemoryStore) save(key, store string, src interface{}) (string, error) {
 	if _, ok := s.stores[store]; !ok {
 		s.stores[store] = make(map[string]interface{})
 	}
@@ -239,6 +222,16 @@ func (s *MemoryStore) Save(key, store string, src interface{}) (string, error) {
 	if err != nil {
 		return "", err
 	}
+
+	if key == "" {
+		if idVal, ok := data[common.IDField]; ok && idVal != "" {
+			key = fmt.Sprintf("%v", idVal)
+		} else {
+			key = common.NewObjectId().String()
+		}
+		data[common.IDField] = key
+	}
+
 	s.stores[store][key] = data
 	return key, nil
 }
@@ -249,7 +242,7 @@ func (s *MemoryStore) SaveAll(store string, src ...interface{}) (keys []string, 
 	defer s.Unlock()
 
 	for _, data := range src {
-		key, err := s.Save("", store, data)
+		key, err := s.save("", store, data)
 		if err != nil {
 			return nil, err
 		}
@@ -262,7 +255,10 @@ func (s *MemoryStore) SaveAll(store string, src ...interface{}) (keys []string, 
 func (s *MemoryStore) Update(key string, store string, src interface{}) error {
 	s.Lock()
 	defer s.Unlock()
+	return s.update(key, store, src)
+}
 
+func (s *MemoryStore) update(key string, store string, src interface{}) error {
 	if _, ok := s.stores[store][key]; !ok {
 		return common.ErrNotFound
 	}
@@ -274,8 +270,19 @@ func (s *MemoryStore) Update(key string, store string, src interface{}) error {
 
 	if existingData, ok := s.stores[store][key].(map[string]interface{}); ok {
 		for k, v := range updateData {
-			if k != "id" {
-				existingData[k] = v
+			if strings.EqualFold(k, "id") {
+				continue
+			}
+			found := false
+			for ek := range existingData {
+				if strings.EqualFold(ek, k) {
+					existingData[ek] = v
+					found = true
+					break
+				}
+			}
+			if !found {
+				existingData[strings.ToLower(k)] = v
 			}
 		}
 		s.stores[store][key] = existingData
@@ -289,7 +296,10 @@ func (s *MemoryStore) Update(key string, store string, src interface{}) error {
 func (s *MemoryStore) Replace(key string, store string, src interface{}) error {
 	s.Lock()
 	defer s.Unlock()
+	return s.replace(key, store, src)
+}
 
+func (s *MemoryStore) replace(key string, store string, src interface{}) error {
 	// Serialize the data into a map[string]interface{}
 	data, err := marshalData(src)
 	if err != nil {
@@ -314,11 +324,12 @@ func (s *MemoryStore) FilterUpdate(filter map[string]interface{}, src interface{
 	s.Lock()
 	defer s.Unlock()
 
-	// Currently, this method does not perform filtering. It simply updates all documents.
-	for key := range s.stores[store] {
-		err := s.Update(key, store, src)
-		if err != nil {
-			return err
+	for key, v := range s.stores[store] {
+		if matchesFilter(v, filter) {
+			err := s.update(key, store, src)
+			if err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -329,11 +340,12 @@ func (s *MemoryStore) FilterReplace(filter map[string]interface{}, src interface
 	s.Lock()
 	defer s.Unlock()
 
-	// Currently, this method does not perform filtering. It simply replaces all documents.
-	for key := range s.stores[store] {
-		err := s.Replace(key, store, src)
-		if err != nil {
-			return err
+	for key, v := range s.stores[store] {
+		if matchesFilter(v, filter) {
+			err := s.replace(key, store, src)
+			if err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -343,6 +355,7 @@ func matchesFilter(item interface{}, filter map[string]interface{}) bool {
 	if len(filter) == 0 {
 		return true
 	}
+
 	itemMap, ok := item.(map[string]interface{})
 	if !ok {
 		dataBytes, err := json.Marshal(item)
@@ -353,16 +366,236 @@ func matchesFilter(item interface{}, filter map[string]interface{}) bool {
 			return false
 		}
 	}
-	for k, targetVal := range filter {
-		val, ok := itemMap[k]
-		if !ok {
-			return false
+
+	var query map[string]interface{}
+	if q, ok := filter["q"].(map[string]interface{}); ok {
+		query = q
+	} else {
+		query = filter
+	}
+
+	if len(query) == 0 {
+		return true
+	}
+
+	for k, v := range query {
+		cleanKey := k
+		if strings.HasPrefix(k, "data.") {
+			cleanKey = strings.TrimPrefix(k, "data.")
 		}
-		if fmt.Sprintf("%v", val) != fmt.Sprintf("%v", targetVal) {
-			return false
+
+		val, exists := itemMap[cleanKey]
+		if !exists {
+			lowerClean := strings.ToLower(cleanKey)
+			val, exists = itemMap[lowerClean]
+			if !exists {
+				val, exists = getValueAtPath(itemMap, cleanKey)
+				if !exists {
+					val, exists = itemMap[k]
+					if !exists {
+						lowerK := strings.ToLower(k)
+						val, exists = itemMap[lowerK]
+						if !exists {
+							val, exists = getValueAtPath(itemMap, k)
+							if !exists {
+								return false
+							}
+						}
+					}
+				}
+			}
+		}
+
+		if vSlice, ok := v.([]string); ok {
+			matchedAny := false
+			for _, item := range vSlice {
+				if compareValues(val, item) {
+					matchedAny = true
+					break
+				}
+			}
+			if !matchedAny {
+				return false
+			}
+		} else if vSliceInterface, ok := v.([]interface{}); ok {
+			matchedAny := false
+			for _, item := range vSliceInterface {
+				if compareValues(val, item) {
+					matchedAny = true
+					break
+				}
+			}
+			if !matchedAny {
+				return false
+			}
+		} else {
+			if !compareValues(val, v) {
+				return false
+			}
 		}
 	}
 	return true
+}
+
+func getValueAtPath(data map[string]interface{}, path string) (interface{}, bool) {
+	parts := strings.Split(path, ".")
+	var current interface{} = data
+	for _, part := range parts {
+		if m, ok := current.(map[string]interface{}); ok {
+			var exists bool
+			current, exists = m[part]
+			if !exists {
+				return nil, false
+			}
+		} else {
+			return nil, false
+		}
+	}
+	return current, true
+}
+
+func compareValues(actual, expected interface{}) bool {
+	if expMap, ok := expected.(map[string]interface{}); ok {
+		for op, val := range expMap {
+			switch op {
+			case "$gt":
+				return compareNumeric(actual, val) > 0
+			case "$gte":
+				return compareNumeric(actual, val) >= 0
+			case "$lt":
+				return compareNumeric(actual, val) < 0
+			case "$lte":
+				return compareNumeric(actual, val) <= 0
+			case "$eq":
+				return reflect.DeepEqual(actual, val) || fmt.Sprintf("%v", actual) == fmt.Sprintf("%v", val)
+			case "$ne":
+				return !reflect.DeepEqual(actual, val) && fmt.Sprintf("%v", actual) != fmt.Sprintf("%v", val)
+			}
+		}
+		return false
+	}
+
+	if expectedStr, ok := expected.(string); ok {
+		return evaluateQueryStringSyntax(actual, expectedStr)
+	}
+
+	return reflect.DeepEqual(actual, expected) || fmt.Sprintf("%v", actual) == fmt.Sprintf("%v", expected)
+}
+
+func evaluateQueryStringSyntax(actual interface{}, queryVal string) bool {
+	if len(queryVal) == 0 {
+		return true
+	}
+
+	negate := false
+	valRune := []rune(queryVal)
+	switch valRune[0] {
+	case '!':
+		negate = true
+		valRune = valRune[1:]
+	case '?', '+':
+		valRune = valRune[1:]
+	}
+
+	if len(valRune) == 0 {
+		return !negate
+	}
+
+	first := valRune[0]
+	var matched bool
+
+	switch first {
+	case '^':
+		pattern := string(valRune[1:])
+		patternRegex := "^" + pattern
+		matched, _ = regexp.MatchString(patternRegex, fmt.Sprintf("%v", actual))
+	case '<':
+		var compVal string
+		if len(valRune) > 1 && valRune[1] == ':' {
+			compVal = string(valRune[3:])
+		} else {
+			compVal = string(valRune[1:])
+		}
+		matched = compareNumeric(actual, compVal) <= 0
+	case '>':
+		var compVal string
+		if len(valRune) > 1 && valRune[1] == ':' {
+			compVal = string(valRune[3:])
+		} else {
+			compVal = string(valRune[1:])
+		}
+		matched = compareNumeric(actual, compVal) >= 0
+	default:
+		expectedStr := string(valRune)
+		actualStr := fmt.Sprintf("%v", actual)
+		if strings.Contains(expectedStr, "*") {
+			pattern := "^" + strings.ReplaceAll(regexp.QuoteMeta(expectedStr), "\\*", ".*") + "$"
+			matched, _ = regexp.MatchString(pattern, actualStr)
+		} else {
+			matched = (actualStr == expectedStr)
+		}
+	}
+
+	if negate {
+		return !matched
+	}
+	return matched
+}
+
+func compareNumeric(actual, expected interface{}) int {
+	actFloat, ok1 := toFloat64(actual)
+	expFloat, ok2 := toFloat64(expected)
+	if !ok1 || !ok2 {
+		actStr := fmt.Sprintf("%v", actual)
+		expStr := fmt.Sprintf("%v", expected)
+		if actStr < expStr {
+			return -1
+		} else if actStr > expStr {
+			return 1
+		}
+		return 0
+	}
+	if actFloat < expFloat {
+		return -1
+	} else if actFloat > expFloat {
+		return 1
+	}
+	return 0
+}
+
+func toFloat64(val interface{}) (float64, bool) {
+	switch v := val.(type) {
+	case int:
+		return float64(v), true
+	case int8:
+		return float64(v), true
+	case int16:
+		return float64(v), true
+	case int32:
+		return float64(v), true
+	case int64:
+		return float64(v), true
+	case uint:
+		return float64(v), true
+	case uint8:
+		return float64(v), true
+	case uint16:
+		return float64(v), true
+	case uint32:
+		return float64(v), true
+	case uint64:
+		return float64(v), true
+	case float32:
+		return float64(v), true
+	case float64:
+		return v, true
+	case string:
+		var f float64
+		if _, err := fmt.Sscanf(v, "%f", &f); err == nil {
+			return f, true
+		}
+	}
+	return 0, false
 }
 
 // FilterGet retrieves a document matching a filter.
@@ -385,9 +618,23 @@ func (s *MemoryStore) FilterGetAll(filter map[string]interface{}, count int, ski
 	s.Lock()
 	defer s.Unlock()
 
-	// Currently, this method does not perform filtering. It simply returns all documents
-	// within the specified range.
-	return s.All(count, skip, store)
+	rows := make([]interface{}, 0)
+	i := 0
+	for _, v := range s.stores[store] {
+		if matchesFilter(v, filter) {
+			if i >= skip {
+				rows = append(rows, v)
+			}
+			i++
+		}
+	}
+	if len(rows) > count {
+		rows = rows[:count]
+	}
+
+	return &TransactionRows{
+		entries: rows,
+	}, nil
 }
 
 // Query retrieves documents matching a filter and calculates aggregations.
@@ -396,11 +643,20 @@ func (s *MemoryStore) Query(filter, aggregates map[string]interface{}, count int
 	defer s.Unlock()
 
 	rows := make([]interface{}, 0)
+	i := 0
 	for _, v := range s.stores[store] {
-		rows = append(rows, v)
+		if matchesFilter(v, filter) {
+			if i >= skip {
+				rows = append(rows, v)
+			}
+			i++
+		}
+	}
+	if len(rows) > count {
+		rows = rows[:count]
 	}
 	logger.Info("query", "filter", filter, "rows", len(rows))
-	// Currently, this method does not perform filtering or aggregation.
+	// Currently, this method does not perform aggregation.
 	return &TransactionRows{
 		entries: rows,
 	}, AggregateResult{}, nil
@@ -411,9 +667,14 @@ func (s *MemoryStore) FilterDelete(filter map[string]interface{}, store string, 
 	s.Lock()
 	defer s.Unlock()
 
-	// Currently, this method does not perform filtering. It simply deletes all documents.
-	for key := range s.stores[store] {
-		delete(s.stores[store], key)
+	if _, ok := s.stores[store]; !ok {
+		return common.ErrNotFound
+	}
+
+	for key, v := range s.stores[store] {
+		if matchesFilter(v, filter) {
+			delete(s.stores[store], key)
+		}
 	}
 	return nil
 }
@@ -423,18 +684,27 @@ func (s *MemoryStore) FilterCount(filter map[string]interface{}, store string, o
 	s.Lock()
 	defer s.Unlock()
 
-	// Currently, this method does not perform filtering. It simply returns the count of all documents.
-	return int64(len(s.stores[store])), nil
+	count := int64(0)
+	for _, v := range s.stores[store] {
+		if matchesFilter(v, filter) {
+			count++
+		}
+	}
+	return count, nil
 }
 
-// GetByField retrieves a document by a specific field and value.
+// GetByField retrieves the first document that has a specific field.
 func (s *MemoryStore) GetByField(name, val, store string, dst interface{}) error {
 	s.Lock()
 	defer s.Unlock()
 
+	if _, ok := s.stores[store]; !ok {
+		return common.ErrNotFound
+	}
+
 	for _, v := range s.stores[store] {
-		if data, ok := v.(map[string]interface{})[name]; ok {
-			if data == val {
+		if data, ok := v.(map[string]interface{}); ok {
+			if _, found := getFieldCaseInsensitive(data, name); found {
 				return unmarshalData(v, dst)
 			}
 		}
@@ -443,26 +713,79 @@ func (s *MemoryStore) GetByField(name, val, store string, dst interface{}) error
 	return common.ErrNotFound
 }
 
-// GetByFieldsByField retrieves a document by a specific field and value, selecting specific fields.
+// GetByFieldsByField retrieves all documents that have a specific field, selecting specific fields.
 func (s *MemoryStore) GetByFieldsByField(name, val, store string, fields []string, dst interface{}) (err error) {
 	s.Lock()
 	defer s.Unlock()
 
+	if _, ok := s.stores[store]; !ok {
+		return nil
+	}
+
+	dstVal := reflect.ValueOf(dst)
+	if dstVal.Kind() != reflect.Ptr {
+		return fmt.Errorf("dst must be a pointer")
+	}
+
+	sliceType := dstVal.Elem().Type()
+	isSlice := sliceType.Kind() == reflect.Slice
+
+	var matchedMaps []map[string]interface{}
 	for _, v := range s.stores[store] {
-		if data, ok := v.(map[string]interface{})[name]; ok {
-			if data == val {
-				filteredData := make(map[string]interface{})
-				for _, field := range fields {
-					if fieldValue, ok := v.(map[string]interface{})[field]; ok {
-						filteredData[field] = fieldValue
+		if data, ok := v.(map[string]interface{}); ok {
+			if _, found := getFieldCaseInsensitive(data, name); found {
+				if len(fields) > 0 {
+					filtered := make(map[string]interface{})
+					for _, field := range fields {
+						if fv, ok := getFieldCaseInsensitive(data, field); ok {
+							filtered[field] = fv
+						}
 					}
+					matchedMaps = append(matchedMaps, filtered)
+				} else {
+					matchedMaps = append(matchedMaps, data)
 				}
-				return unmarshalData(filteredData, dst)
 			}
 		}
 	}
 
-	return common.ErrNotFound
+	if isSlice {
+		sliceVal := reflect.MakeSlice(sliceType, len(matchedMaps), len(matchedMaps))
+		for i, m := range matchedMaps {
+			elemPtr := reflect.New(sliceType.Elem())
+			b, err := json.Marshal(m)
+			if err != nil {
+				return err
+			}
+			if err := json.Unmarshal(b, elemPtr.Interface()); err != nil {
+				return err
+			}
+			sliceVal.Index(i).Set(elemPtr.Elem())
+		}
+		dstVal.Elem().Set(sliceVal)
+	} else {
+		if len(matchedMaps) == 0 {
+			return common.ErrNotFound
+		}
+		b, err := json.Marshal(matchedMaps[0])
+		if err != nil {
+			return err
+		}
+		if err := json.Unmarshal(b, dst); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func getFieldCaseInsensitive(m map[string]interface{}, name string) (interface{}, bool) {
+	for k, v := range m {
+		if strings.EqualFold(k, name) {
+			return v, true
+		}
+	}
+	return nil, false
 }
 
 // BatchDelete removes multiple documents by their IDs.
@@ -527,7 +850,7 @@ func (s *MemoryStore) BatchInsert(data []interface{}, store string, opts ObjectS
 	defer s.Unlock()
 
 	for _, datum := range data {
-		key, err := s.Save("", store, datum)
+		key, err := s.save("", store, datum)
 		if err != nil {
 			return nil, err
 		}
