@@ -5,6 +5,7 @@ import (
 	"time"
 
 	badgerdb "github.com/dgraph-io/badger/v4"
+	common "github.com/osiloke/gostore/common"
 )
 
 type BadgerTransaction struct {
@@ -45,6 +46,9 @@ func (t *BadgerTransaction) Set(key []byte, data []byte) error {
 func (t *BadgerTransaction) Get(key []byte) ([]byte, error) {
 	item, err := t.txn.Get(key)
 	if err != nil {
+		if errors.Is(err, badgerdb.ErrKeyNotFound) {
+			return nil, common.ErrNotFound
+		}
 		return nil, err
 	}
 	var valCopy []byte
@@ -52,9 +56,24 @@ func (t *BadgerTransaction) Get(key []byte) ([]byte, error) {
 		valCopy = append([]byte{}, val...)
 		return nil
 	})
-	return valCopy, err
-
+	if err != nil {
+		if errors.Is(err, badgerdb.ErrKeyNotFound) {
+			return nil, common.ErrNotFound
+		}
+		return nil, err
+	}
+	if len(valCopy) == 0 {
+		return nil, common.ErrNotFound
+	}
+	return valCopy, nil
 }
 func (t *BadgerTransaction) Delete(key []byte) error {
-	return t.txn.Delete(key)
+	err := t.txn.Delete(key)
+	if err != nil {
+		if errors.Is(err, badgerdb.ErrKeyNotFound) {
+			return common.ErrNotFound
+		}
+		return err
+	}
+	return nil
 }

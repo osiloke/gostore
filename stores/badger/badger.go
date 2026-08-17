@@ -733,7 +733,7 @@ func (s *BadgerStore) _Get(key, store string) ([][]byte, error) {
 		return err2
 	})
 	if err != nil {
-		if err == badgerdb.ErrKeyNotFound {
+		if errors.Is(err, badgerdb.ErrKeyNotFound) {
 			return nil, common.ErrNotFound
 		}
 		return nil, err
@@ -856,7 +856,7 @@ func (s *BadgerStore) _Delete(key, store string) error {
 		return txn.Delete(storeKey)
 	})
 	if err != nil {
-		if err == badgerdb.ErrKeyNotFound {
+		if errors.Is(err, badgerdb.ErrKeyNotFound) {
 			return common.ErrNotFound
 		}
 		return err
@@ -1315,6 +1315,9 @@ func (s *BadgerStore) GetTX(key string, store string, dst interface{}, txn commo
 	var val []byte
 	val, err := txn.Get(storeKey)
 	if err != nil {
+		if errors.Is(err, badgerdb.ErrKeyNotFound) || errors.Is(err, common.ErrNotFound) {
+			return common.ErrNotFound
+		}
 		return err
 	}
 	if len(val) == 0 {
@@ -1347,7 +1350,14 @@ func (s *BadgerStore) DeleteTX(key string, store string, tx common.Transaction) 
 	skey := s.storedKey(store, key)
 	storeKey := []byte(skey)
 	s.Logger.Info("DeleteTX", "key", key)
-	return tx.Delete(storeKey)
+	err := tx.Delete(storeKey)
+	if err != nil {
+		if errors.Is(err, badgerdb.ErrKeyNotFound) || errors.Is(err, common.ErrNotFound) {
+			return common.ErrNotFound
+		}
+		return err
+	}
+	return nil
 }
 func (s *BadgerStore) Delete(key string, store string) error {
 	return s._Delete(key, store)
@@ -1387,6 +1397,9 @@ func (s *BadgerStore) FilterGet(filter map[string]interface{}, store string, dst
 		}
 		data, err = s._Get(shortID, store)
 		if err != nil {
+			if errors.Is(err, badgerdb.ErrKeyNotFound) {
+				return common.ErrNotFound
+			}
 			return err
 		}
 
@@ -1422,7 +1435,13 @@ func (s *BadgerStore) FilterGetTX(filter map[string]interface{}, store string, d
 		storeKey := []byte(k)
 		data, err := tx.Get(storeKey)
 		if err != nil {
+			if errors.Is(err, badgerdb.ErrKeyNotFound) || errors.Is(err, common.ErrNotFound) {
+				return common.ErrNotFound
+			}
 			return err
+		}
+		if len(data) == 0 {
+			return common.ErrNotFound
 		}
 
 		err = json.Unmarshal(data, dst)
@@ -1600,10 +1619,10 @@ func (s *BadgerStore) FilterDelete(query map[string]interface{}, store string, o
 				shortID = idParts[1]
 			}
 			err = s._Delete(shortID, store)
-			if err != nil {
+			if err != nil && !errors.Is(err, common.ErrNotFound) && !errors.Is(err, badgerdb.ErrKeyNotFound) {
 				break
 			}
-			indexKey := s.tableKey(store, v.ID)
+			indexKey := s.tableKey(store, shortID)
 			err = s.Indexer.UnIndexDocument(indexKey)
 			if err != nil {
 				break
@@ -1637,7 +1656,47 @@ func (s *BadgerStore) FilterCount(filter map[string]interface{}, store string, o
 }
 
 // Misc gets
-func (s *BadgerStore) GetByField(name, val, store string, dst interface{}) error { return nil }
+func (s *BadgerStore) GetByField(name, val, store string, dst interface{}) error {
+	var foundVal []byte
+	prefix := []byte(s.tableWithPrefix(store))
+	err := s.Db.View(func(txn *badgerdb.Txn) error {
+		opts := badgerdb.DefaultIteratorOptions
+		opts.PrefetchValues = true
+		it := txn.NewIterator(opts)
+		defer it.Close()
+		for it.Seek(prefix); it.ValidForPrefix(prefix); it.Next() {
+			item := it.Item()
+			err := item.Value(func(v []byte) error {
+				var data map[string]interface{}
+				if err := json.Unmarshal(v, &data); err == nil {
+					if fv, ok := data[name]; ok {
+						if val == "" || fmt.Sprintf("%v", fv) == val {
+							foundVal = append([]byte{}, v...)
+						}
+					}
+				}
+				return nil
+			})
+			if err != nil {
+				return err
+			}
+			if len(foundVal) > 0 {
+				break
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		if errors.Is(err, badgerdb.ErrKeyNotFound) {
+			return common.ErrNotFound
+		}
+		return err
+	}
+	if len(foundVal) == 0 {
+		return common.ErrNotFound
+	}
+	return json.Unmarshal(foundVal, dst)
+}
 func (s *BadgerStore) GetByFieldsByField(name, val, store string, fields []string, dst interface{}) (err error) {
 	return common.ErrNotImplemented
 }

@@ -807,3 +807,90 @@ func TestBadgerStore_SaveTX(t *testing.T) {
 		})
 	}
 }
+
+func TestBadgerStore_ErrNotFound(t *testing.T) {
+	db := createDB("err_not_found_test")
+	defer removeDB("err_not_found_test", db)
+	store := "test_store"
+	db.CreateTable(store, nil)
+
+	// 1. Get on non-existent key returns common.ErrNotFound
+	t.Run("Get non-existent key", func(t *testing.T) {
+		var dst map[string]interface{}
+		err := db.Get("non_existent_key", store, &dst)
+		assert.Error(t, err)
+		assert.Equal(t, common.ErrNotFound, err)
+	})
+
+	// 2. GetTX on non-existent key returns common.ErrNotFound
+	t.Run("GetTX non-existent key", func(t *testing.T) {
+		txn := db.UpdateTransaction()
+		defer txn.Discard()
+		var dst map[string]interface{}
+		err := db.GetTX("non_existent_key", store, &dst, txn)
+		assert.Error(t, err)
+		assert.Equal(t, common.ErrNotFound, err)
+	})
+
+	// 3. Transaction.Get directly on non-existent key returns common.ErrNotFound
+	t.Run("Transaction.Get non-existent key", func(t *testing.T) {
+		txn := db.UpdateTransaction()
+		defer txn.Discard()
+		rawKey := []byte(db.storedKey(store, "non_existent_key"))
+		val, err := txn.Get(rawKey)
+		assert.Nil(t, val)
+		assert.Error(t, err)
+		assert.Equal(t, common.ErrNotFound, err)
+	})
+
+	// 4. FilterGet with no matching query returns common.ErrNotFound
+	t.Run("FilterGet no match", func(t *testing.T) {
+		var dst map[string]interface{}
+		err := db.FilterGet(map[string]interface{}{"q": map[string]interface{}{"name": "non_existent_item"}}, store, &dst, nil)
+		assert.Error(t, err)
+		assert.Equal(t, common.ErrNotFound, err)
+	})
+
+	// 5. FilterGetTX with no matching query returns common.ErrNotFound
+	t.Run("FilterGetTX no match", func(t *testing.T) {
+		txn := db.UpdateTransaction()
+		defer txn.Discard()
+		var dst map[string]interface{}
+		err := db.FilterGetTX(map[string]interface{}{"q": map[string]interface{}{"name": "non_existent_item"}}, store, &dst, nil, txn)
+		assert.Error(t, err)
+		assert.Equal(t, common.ErrNotFound, err)
+	})
+
+	// 6. GetByField with non-existent field returns common.ErrNotFound
+	t.Run("GetByField non-existent field", func(t *testing.T) {
+		var dst map[string]interface{}
+		err := db.GetByField("non_existent_field", "val", store, &dst)
+		assert.Error(t, err)
+		assert.Equal(t, common.ErrNotFound, err)
+	})
+
+	// 7. FilterGetAll with no matching query returns common.ErrNotFound
+	t.Run("FilterGetAll no match", func(t *testing.T) {
+		rows, err := db.FilterGetAll(map[string]interface{}{"q": map[string]interface{}{"name": "non_existent_item"}}, 10, 0, store, nil)
+		assert.Nil(t, rows)
+		assert.Error(t, err)
+		assert.Equal(t, common.ErrNotFound, err)
+	})
+
+	// 8. FilterCount with no matching query returns common.ErrNotFound
+	t.Run("FilterCount no match", func(t *testing.T) {
+		count, err := db.FilterCount(map[string]interface{}{"q": map[string]interface{}{"name": "non_existent_item"}}, store, nil)
+		assert.Equal(t, int64(0), count)
+		assert.Error(t, err)
+		assert.Equal(t, common.ErrNotFound, err)
+	})
+
+	// 9. Query with no match returns common.ErrNotFound
+	t.Run("Query no match", func(t *testing.T) {
+		rows, agg, err := db.Query(map[string]interface{}{"name": "non_existent_item"}, nil, 10, 0, store, nil)
+		assert.Nil(t, rows)
+		assert.NotNil(t, agg)
+		assert.Error(t, err)
+		assert.Equal(t, common.ErrNotFound, err)
+	})
+}

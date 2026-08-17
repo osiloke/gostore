@@ -2,11 +2,13 @@ package badger
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
 
 	"github.com/blevesearch/bleve/v2"
+	badgerdb "github.com/dgraph-io/badger/v4"
 	log "github.com/mgutz/logxi/v1"
 	common "github.com/osiloke/gostore/common"
 )
@@ -88,14 +90,18 @@ func NewIndexedBadgerRows(name string, total uint64, result *bleve.SearchResult,
 						b.logger.Info(fmt.Sprintf("retrieving %s from %s store in badgerdb", h.ID, name))
 						// h.ID is now the full badger DB key format without prefix (<store>|<id>)
 						// but _Get expects only the <id> part because it prefixes it again.
-						idParts := strings.Split(h.ID, "|")
+						sep := bs.KeyFormat.IdSeparator
+						if sep == "" {
+							sep = "|"
+						}
+						idParts := strings.Split(h.ID, sep)
 						shortID := h.ID // fallback if split fails
 						if len(idParts) > 1 {
 							shortID = idParts[1]
 						}
 						row, err := bs._Get(shortID, name)
 						if err != nil {
-							if err == common.ErrNotFound {
+							if errors.Is(err, common.ErrNotFound) || errors.Is(err, badgerdb.ErrKeyNotFound) {
 								//not found so remove from indexer using the full key (h.ID)
 								bs.Indexer.UnIndexDocument(h.ID)
 								ci++
@@ -145,14 +151,18 @@ func (s *SyncIndexRows) Next(dst interface{}) (bool, error) {
 	for int(s.ci) != s.result.Hits.Len() {
 		h := s.result.Hits[s.ci]
 		s.logger.Info("next row", "key", h.ID, "store", s.name)
-		idParts := strings.Split(h.ID, "|")
+		sep := s.bs.KeyFormat.IdSeparator
+		if sep == "" {
+			sep = "|"
+		}
+		idParts := strings.Split(h.ID, sep)
 		shortID := h.ID
 		if len(idParts) > 1 {
 			shortID = idParts[1]
 		}
 		row, err := s.bs._Get(shortID, s.name)
 		if err != nil {
-			if err == common.ErrNotFound {
+			if errors.Is(err, common.ErrNotFound) || errors.Is(err, badgerdb.ErrKeyNotFound) {
 				//not found so remove from indexer using full key
 				s.bs.Indexer.UnIndexDocument(h.ID)
 				s.ci++
@@ -179,14 +189,18 @@ func (s *SyncIndexRows) NextRaw() ([]byte, bool) {
 	for int(s.ci) != s.result.Hits.Len() {
 		h := s.result.Hits[s.ci]
 		s.logger.Info("NEXT KEY", "id", h.ID, "store", s.name)
-		idParts := strings.Split(h.ID, "|")
+		sep := s.bs.KeyFormat.IdSeparator
+		if sep == "" {
+			sep = "|"
+		}
+		idParts := strings.Split(h.ID, sep)
 		shortID := h.ID
 		if len(idParts) > 1 {
 			shortID = idParts[1]
 		}
 		row, err := s.bs._Get(shortID, s.name)
 		if err != nil {
-			if err == common.ErrNotFound {
+			if errors.Is(err, common.ErrNotFound) || errors.Is(err, badgerdb.ErrKeyNotFound) {
 				//not found so remove from indexer using full key
 				s.bs.Indexer.UnIndexDocument(h.ID)
 				s.ci++
