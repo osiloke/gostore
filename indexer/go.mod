@@ -63,7 +63,7 @@ require (
 	github.com/rs/zerolog v1.35.1 // indirect
 	github.com/smarty/assertions v1.15.0 // indirect
 	go.etcd.io/bbolt v1.4.0 // indirect
-	golang.org/x/net v0.54.0 // indirect
+	golang.org/x/net v0.55.0 // indirect
 	golang.org/x/sys v0.45.0 // indirect
 	golang.org/x/term v0.43.0 // indirect
 	google.golang.org/protobuf v1.36.6 // indirect
