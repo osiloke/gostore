@@ -3,6 +3,7 @@ package badger
 //TODO: Extract methods into functions
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -108,25 +109,27 @@ func WithOptionsModifier(modifier func(opts badgerdb.Options) badgerdb.Options) 
 
 // BadgerStore gostore implementation that used badgerdb
 type BadgerStore struct {
-	Bucket             []byte
-	Db                 *badgerdb.DB
-	Path               string
-	Indexer            indexer.Indexer
-	IndexType          string
-	IndexPath          string
-	IndexMapping       mapping.IndexMapping
-	tableConfig        map[string]*TableConfig
-	t                  *time.Ticker
-	quit               chan struct{}
-	done               chan bool
-	KeyFormat          KeyFormat
-	ReIndexBatchSize       int
-	ReIndexWorkers         int
-	ReIndexUnsafeBatch     bool
-	ReIndexPauseAfterDocs  int
-	ReIndexPauseDuration   time.Duration
-	Logger                 log.Logger
-	optionsModifier    func(opts badgerdb.Options) badgerdb.Options
+	Bucket                []byte
+	Db                    *badgerdb.DB
+	Path                  string
+	Indexer               indexer.Indexer
+	IndexType             string
+	IndexPath             string
+	IndexMapping          mapping.IndexMapping
+	tableConfig           map[string]*TableConfig
+	t                     *time.Ticker
+	quit                  chan struct{}
+	done                  chan bool
+	KeyFormat             KeyFormat
+	ReIndexBatchSize      int
+	ReIndexWorkers        int
+	ReIndexUnsafeBatch    bool
+	ReIndexPauseAfterDocs int
+	ReIndexPauseDuration  time.Duration
+	Logger                log.Logger
+	optionsModifier       func(opts badgerdb.Options) badgerdb.Options
+	lockResolver          LockResolver
+	ctx                   context.Context
 }
 
 // IndexedData represents a stored row
@@ -187,11 +190,6 @@ func (s *BadgerStore) stopTicker() {
 	}
 }
 func NewDBOnly(dbPath string, opts ...StoreOpt) (s *BadgerStore, err error) {
-	// Check if database is locked
-	if _, err := os.Stat(filepath.Join(dbPath, "LOCK")); err == nil {
-		return nil, common.ErrDatabaseLocked
-	}
-
 	s = &BadgerStore{
 		Bucket:      []byte("_default"),
 		Path:        dbPath,
@@ -205,6 +203,11 @@ func NewDBOnly(dbPath string, opts ...StoreOpt) (s *BadgerStore, err error) {
 	}
 	for _, opt := range opts {
 		opt(s)
+	}
+
+	// Check if database is locked
+	if err := s.checkLock(dbPath); err != nil {
+		return nil, err
 	}
 
 	opt := BadgerDefaultOptions(dbPath)
@@ -236,11 +239,6 @@ func NewRestorable(root string, opts ...StoreOpt) (s *BadgerStore, err error) {
 		l.Debug("made badger db", "path", dbPath)
 	}
 
-	// Check if database is locked
-	if _, err := os.Stat(filepath.Join(dbPath, "LOCK")); err == nil {
-		return nil, common.ErrDatabaseLocked
-	}
-
 	s = &BadgerStore{
 		Bucket:      []byte("_default"),
 		Path:        dbPath,
@@ -254,6 +252,11 @@ func NewRestorable(root string, opts ...StoreOpt) (s *BadgerStore, err error) {
 	}
 	for _, opt := range opts {
 		opt(s)
+	}
+
+	// Check if database is locked
+	if err := s.checkLock(dbPath); err != nil {
+		return nil, err
 	}
 
 	opt := BadgerRestoreOptions(dbPath)
@@ -284,11 +287,6 @@ func New(root string, opts ...StoreOpt) (s *BadgerStore, err error) {
 		l.Debug("made badger db", "path", dbPath)
 	}
 
-	// Check if database is locked
-	if _, err := os.Stat(filepath.Join(dbPath, "LOCK")); err == nil {
-		return nil, common.ErrDatabaseLocked
-	}
-
 	s = &BadgerStore{
 		Bucket:      []byte("_default"),
 		Path:        dbPath,
@@ -303,6 +301,11 @@ func New(root string, opts ...StoreOpt) (s *BadgerStore, err error) {
 	}
 	for _, opt := range opts {
 		opt(s)
+	}
+
+	// Check if database is locked
+	if err := s.checkLock(dbPath); err != nil {
+		return nil, err
 	}
 
 	opt := BadgerDefaultOptions(dbPath)
@@ -380,11 +383,6 @@ func NewWithIndexer(root string, index indexer.Indexer, opts ...StoreOpt) (s *Ba
 		l.Debug("created badger directory " + dbPath)
 	}
 
-	// Check if database is locked
-	if _, err := os.Stat(filepath.Join(dbPath, "LOCK")); err == nil {
-		return nil, common.ErrDatabaseLocked
-	}
-
 	s = &BadgerStore{
 		Bucket:      []byte("_default"),
 		Path:        dbPath,
@@ -398,6 +396,11 @@ func NewWithIndexer(root string, index indexer.Indexer, opts ...StoreOpt) (s *Ba
 	}
 	for _, opt := range opts {
 		opt(s)
+	}
+
+	// Check if database is locked
+	if err := s.checkLock(dbPath); err != nil {
+		return nil, err
 	}
 
 	opt := BadgerDefaultOptions(dbPath)
@@ -432,11 +435,6 @@ func NewWithIndex(root, index string, indexMapping mapping.IndexMapping, indexOp
 	if _, err = os.Stat(root); os.IsNotExist(err) {
 		os.Mkdir(root, os.FileMode(0700))
 		log.New("gostore-contrib.badger").Debug("created root path " + root)
-	}
-	dbPath := filepath.Join(root, "db")
-	// Check if database is locked
-	if _, err = os.Stat(filepath.Join(dbPath, "LOCK")); err == nil {
-		return nil, common.ErrDatabaseLocked
 	}
 	indexPath := filepath.Join(root, indexFilenamePrefix[index]+"db.index")
 	var ix indexer.Indexer
