@@ -436,6 +436,18 @@ func NewWithIndex(root, index string, indexMapping mapping.IndexMapping, indexOp
 		os.Mkdir(root, os.FileMode(0700))
 		log.New("gostore-contrib.badger").Debug("created root path " + root)
 	}
+	tempStore := &BadgerStore{
+		Logger: log.New("gostore-contrib.badger"),
+	}
+	for _, opt := range storeOpts {
+		opt(tempStore)
+	}
+
+	dbPath := filepath.Join(root, "db")
+	if err = tempStore.checkLock(dbPath); err != nil {
+		return nil, err
+	}
+
 	indexPath := filepath.Join(root, indexFilenamePrefix[index]+"db.index")
 	var ix indexer.Indexer
 	reIndex := false
@@ -472,10 +484,6 @@ func NewWithIndex(root, index string, indexMapping mapping.IndexMapping, indexOp
 				log.New("gostore-contrib.badger").Debug("removing index init", "path", entry.Name())
 			}
 		}
-	}
-	tempStore := &BadgerStore{}
-	for _, opt := range storeOpts {
-		opt(tempStore)
 	}
 	var kvconfig map[string]interface{}
 	if tempStore.ReIndexUnsafeBatch {
@@ -553,7 +561,10 @@ func NewWithIndex(root, index string, indexMapping mapping.IndexMapping, indexOp
 	}
 	s, err = NewWithIndexer(root, geoIndex, storeOpts...)
 	if err != nil {
-		return
+		if ix != nil {
+			ix.Close()
+		}
+		return nil, err
 	}
 	s.Logger.Debug("opened badger store with indexer", "root", root, "index", index, "reIndex", reIndex)
 
@@ -578,7 +589,8 @@ func NewWithIndex(root, index string, indexMapping mapping.IndexMapping, indexOp
 		}
 		s.Logger.Debug("starting reindex", "batchSize", s.ReIndexBatchSize, "workers", s.ReIndexWorkers, "unsafeBatch", s.ReIndexUnsafeBatch, "pauseAfterDocs", s.ReIndexPauseAfterDocs, "pauseDuration", s.ReIndexPauseDuration)
 		if err = indexer.ReIndex(index, indexInitFilePath, s, geoIndex, reindexOpts...); err != nil {
-			return
+			s.Close()
+			return nil, err
 		}
 		s.Logger.Debug("reindex completed successfully")
 	}

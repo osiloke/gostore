@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/blevesearch/bleve/v2"
 	common "github.com/osiloke/gostore/common"
 	"github.com/stretchr/testify/assert"
 )
@@ -141,4 +142,29 @@ func TestLockResolver_Stale(t *testing.T) {
 	// Old LOCK.owner should have been cleaned up
 	_, statErr := os.Stat(ownerPath)
 	assert.True(t, os.IsNotExist(statErr))
+}
+
+func TestLockResolver_NewWithIndex_Locked(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "badger-lock-withindex-*")
+	assert.NoError(t, err)
+	defer os.RemoveAll(tmpDir)
+
+	dbDir := filepath.Join(tmpDir, "db")
+	assert.NoError(t, os.MkdirAll(dbDir, 0700))
+
+	lockPath := filepath.Join(dbDir, "LOCK")
+	assert.NoError(t, os.WriteFile(lockPath, []byte("5555\n"), 0644))
+
+	res := &mockResolver{decision: LockHeld}
+	indexMapping := bleve.NewIndexMapping()
+	store, err := NewWithIndex(tmpDir, "scorch", indexMapping, nil, WithLockResolver(res))
+	assert.Nil(t, store)
+	assert.Error(t, err)
+	assert.True(t, errors.Is(err, common.ErrDatabaseLocked))
+	assert.True(t, res.called)
+
+	// Verify that the index was NOT created because lock check ran first
+	indexPath := filepath.Join(tmpDir, "scorch_db.index")
+	_, statErr := os.Stat(indexPath)
+	assert.True(t, os.IsNotExist(statErr), "expected index directory not to be created when DB is locked")
 }
