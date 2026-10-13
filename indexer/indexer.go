@@ -606,7 +606,7 @@ func (i *DefaultIndexer) Query(q string, opts ...RequestOpt) (*bleve.SearchResul
 		return nil, errors.New("no index")
 	}
 	// println(q)
-	query := bleve.NewQueryStringQuery(q)
+	query := ParseQuery(q)
 	searchRequest := bleve.NewSearchRequest(query)
 	for _, opt := range opts {
 		if err := opt(searchRequest); err != nil {
@@ -620,7 +620,7 @@ func (i *DefaultIndexer) QueryWithOptions(q string, size, from int, explain bool
 	if i.index == nil {
 		return nil, errors.New("no index")
 	}
-	query := bleve.NewQueryStringQuery(q)
+	query := ParseQuery(q)
 	searchRequest := bleve.NewSearchRequestOptions(query, size, from, explain)
 	if len(fields) > 0 {
 		searchRequest.Fields = fields
@@ -637,7 +637,7 @@ func (i *DefaultIndexer) FacetedQuery(q string, facets *Facets, size, from int, 
 	if i.index == nil {
 		return nil, errors.New("no index")
 	}
-	query := bleve.NewQueryStringQuery(q)
+	query := ParseQuery(q)
 	searchRequest := bleve.NewSearchRequestOptions(query, size, from, explain)
 	if len(fields) > 0 {
 		searchRequest.Fields = fields
@@ -655,7 +655,7 @@ func (i *DefaultIndexer) QueryWithOptionsHighlighted(q string, size, from int, e
 	if i.index == nil {
 		return nil, errors.New("no index")
 	}
-	query := bleve.NewQueryStringQuery(q)
+	query := ParseQuery(q)
 	searchRequest := bleve.NewSearchRequestOptions(query, size, from, explain)
 	searchRequest.Highlight = bleve.NewHighlightWithStyle("ansi")
 	for _, opt := range opts {
@@ -821,7 +821,7 @@ func (g *GeoIndexer) GeoDistanceQuery(q string, lon, lat float64, distance strin
 	if g.Index() == nil {
 		return nil, errors.New("no index")
 	}
-	query := bleve.NewQueryStringQuery(q)
+	query := ParseQuery(q)
 	//distance query
 	distanceQuery := bleve.NewGeoDistanceQuery(lon, lat, distance)
 	distanceQuery.SetField(g.Field)
